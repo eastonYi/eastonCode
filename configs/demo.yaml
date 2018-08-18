@@ -1,0 +1,73 @@
+#data:
+dir_train_data: /mnt/lustre/xushuang/easton/data/hkust/train
+dir_dev_data: /mnt/lustre/xushuang/easton/data/hkust/dev
+
+#model:
+dir_models: models
+# model_init: /mnt/lustre/xushuang2/easton/projects/mix_model_2.0/models/cdstate_test/nnet_iter12_lr6.2500e-05_trn1.177_67.209%_cv1.511_60.108%_final
+model_init:
+checkpoint_init:
+init_step: 0
+
+num_lstm_layers: 3
+size_cell_hidden: 800
+num_projs: 512
+
+# Optimizer(mmtsgd, adam)   (*)
+optimizer: adam
+
+# batch config
+bucket_boundaries: 149, 190, 221, 248, 272, 294, 316, 337, 358, 379, 401, 424, 450, 477, 509, 545, 590, 651, 748, 1500
+num_batch_token: 25000
+
+logging_step_dev: 1
+size_batch_dev: 60
+
+num_parallel: 8
+
+
+gpus: '0,1,2,3'
+grad_clip_global_norm: 6400.0
+logging_step: 1
+dev_step: 200
+max_iter: 20
+warmup_steps: 2500
+peak: 0.0008
+decay_steps: 1000
+
+feature:
+add_delta: True
+left_splice: 0
+right_splice: 0
+size_dev_stream: 320
+size_train_stream: 200
+# l2 penalty
+lamda_l2: 0.01
+# low frame rate relative
+prop_frm_interval: 2
+use_avg_label: True
+# pretrain
+
+# Dropout probability  (*)
+keep_prob: 1.0
+# Training data shuffle  (*)
+is_shuffle: True
+# Clipping gradient   (*)
+grad_clip_value: 0.0
+slot_clip_value: 0.0
+grad_clip_norm: 0.0
+
+# Initialize scale
+init_scale: 0.01
+# Target delay
+target_delay: 5
+
+# momentum parameters
+momentum: 0.90
+use_nesterov: False
+# Reduce silence
+reduce_sil_frm: 0
+# Stream expand
+stream_expand: False
+expand_limit: 256
+max_norm: 0
