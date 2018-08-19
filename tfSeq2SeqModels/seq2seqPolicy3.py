@@ -18,10 +18,13 @@ class Seq2SeqPolicyModel(Seq2SeqModel):
     def __init__(self, tensor_global_step, encoder, decoder, is_train, args,
                  batch=None, embed_table_encoder=None, embed_table_decoder=None,
                  name='seq2seqModel'):
+        self.list_feed = []
         super().__init__(tensor_global_step, encoder, decoder, is_train, args,
                      batch, embed_table_encoder, embed_table_decoder, name)
 
     def build_graph(self):
+        # create placeholder input
+        env = self.build_env_input()
         # cerate input tensors in the cpu
         tensors_input = self.build_input()
         # create optimizer
@@ -35,7 +38,8 @@ class Seq2SeqPolicyModel(Seq2SeqModel):
 
         for id_gpu, name_gpu in enumerate(self.list_gpu_devices):
             with tf.variable_scope(self.name, reuse=bool(self.__class__.num_Model)):
-                loss, gradients, sample_id, wer, batch_loss = self.build_single_graph(id_gpu, name_gpu, tensors_input)
+                loss, gradients, sample_id, wer, batch_loss = \
+                    self.build_single_graph(id_gpu, name_gpu, tensors_input, env)
                 loss_step.append(loss)
                 tower_grads.append(gradients)
                 list_sample_id.append(sample_id)
@@ -57,7 +61,7 @@ class Seq2SeqPolicyModel(Seq2SeqModel):
 
         return loss, tensors_input.shape_batch, list_sample_id, tensors_input.label_splits, list_wer, list_loss, op_optimize
 
-    def build_single_graph(self, id_gpu, name_gpu, tensors_input):
+    def build_single_graph(self, id_gpu, name_gpu, tensors_input, env=None):
 
         with tf.device(lambda op: choose_device(op, name_gpu, self.center_device)):
             encoder = self.gen_encoder(
@@ -81,27 +85,24 @@ class Seq2SeqPolicyModel(Seq2SeqModel):
                 encoded=encoded,
                 len_encoded=len_encoded,
                 tensors_input=tensors_input)
-
             logits, sample_id, len_decode = decoder(decoder_input)
 
             if self.is_train:
-                # sample_id: selected, argmax_ids, sample_ids
-                argmax_sparse = dense_sequence_to_sparse(
-                    sequences=sample_id[1],
-                    sequence_lengths=len_decode)
+                selected = sample_id[0]
                 selected_sparse = dense_sequence_to_sparse(
-                    sequences=sample_id[0],
+                    sequences=selected,
                     sequence_lengths=len_decode)
                 label_sparse = dense_sequence_to_sparse(
                     sequences=decoder_input.output_labels,
                     sequence_lengths=decoder_input.len_labels)
 
-                wer_bias = tf.edit_distance(argmax_sparse, label_sparse, normalize=True)
-                wer_bias = tf.stop_gradient(wer_bias)
+                max_wer = tf.convert_to_tensor(self.args.model.max_wer)
+                min_reward = tf.convert_to_tensor(self.args.model.min_reward)
+                wer_bias = env.wer_bias
+
                 wer = tf.edit_distance(selected_sparse, label_sparse, normalize=True)
                 reward = wer_bias - wer
-                max_wer = self.args.model.max_wer
-                min_reward = self.args.model.min_reward
+                # drop the samples
                 reward = tf.where(wer<max_wer, reward, tf.zeros_like(reward))
                 reward = tf.where(reward>min_reward, reward, tf.zeros_like(reward))
 
@@ -110,7 +111,6 @@ class Seq2SeqPolicyModel(Seq2SeqModel):
                     labels=sample_id[0],
                     len_labels=len_decode,
                     batch_reward=reward)
-                # loss = tf.Print(loss, [loss, batch_loss], message='loss: ', summarize=1000)
 
                 with tf.name_scope("gradients"):
                     gradients = self.optimizer.compute_gradients(loss)
@@ -119,7 +119,8 @@ class Seq2SeqPolicyModel(Seq2SeqModel):
         logging.info('\tbuild {} on {} succesfully! total model number: {}'.format(
             self.__class__.__name__, name_gpu, self.__class__.num_Model))
 
-        return (loss, gradients, sample_id, [wer_bias, wer], batch_loss) if self.is_train else sample_id
+        # return (loss, gradients, sample_id, [wer_bias, wer], sample_id_bias) if self.is_train else sample_id
+        return (loss, gradients, [selected, selected], [wer_bias, wer], batch_loss) if self.is_train else sample_id
 
     def policy_ce_loss(self, logits, labels, len_labels, batch_reward):
         """
@@ -140,3 +141,13 @@ class Seq2SeqPolicyModel(Seq2SeqModel):
             loss = tf.reduce_sum(batch_loss)/tf.reduce_sum(mask)
 
         return loss, batch_loss
+
+    def build_env_input(self):
+        env = namedtuple('env',
+                         'wer_bias')
+        with tf.device(self.center_device):
+            with tf.name_scope("env_inputs"):
+                env.wer_bias = tf.placeholder(tf.float32, [], name='wer_bias')
+
+        self.list_feed.append(env.wer_bias)
+        return env

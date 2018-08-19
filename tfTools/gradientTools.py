@@ -27,11 +27,13 @@ def average_gradients(tower_grads):
                 # Append on a 'tower' dimension which we will average over below.
                 grads.append(expanded_grad)
             else:
+                # pass
                 logging.warning('here is a variable: {} in gpu_{} which is independent of the loss'.format(var.name, i))
 
         # Average over the 'tower' dimension.
-        grad = tf.concat(values=grads, axis=0)
-        grad = tf.reduce_mean(grad, 0)
+        if grad != None:
+            grad = tf.concat(values=grads, axis=0)
+            grad = tf.reduce_mean(grad, 0)
 
         # Keep in mind that the Variables are redundant because they are shared
         # across towers. So .. we will just return the first tower's pointer to

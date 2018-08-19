@@ -81,27 +81,38 @@ class Seq2SeqPolicyModel(Seq2SeqModel):
                 encoded=encoded,
                 len_encoded=len_encoded,
                 tensors_input=tensors_input)
-
             logits, sample_id, len_decode = decoder(decoder_input)
 
             if self.is_train:
+                # bias decoder
+                with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+                    decoder_bias = self.gen_decoder(
+                        is_train=False,
+                        embed_table=self.embed_table_decoder,
+                        global_step=self.global_step,
+                        args=self.args)
+                    _, sample_id_bias, len_decode_bias = decoder_bias(decoder_input)
+
                 # sample_id: selected, argmax_ids, sample_ids
+                argmax = sample_id_bias[:,:,0]
                 argmax_sparse = dense_sequence_to_sparse(
-                    sequences=sample_id[1],
-                    sequence_lengths=len_decode)
+                    sequences=argmax,
+                    sequence_lengths=len_decode_bias[:,0])
+                selected = sample_id[0]
                 selected_sparse = dense_sequence_to_sparse(
-                    sequences=sample_id[0],
+                    sequences=selected,
                     sequence_lengths=len_decode)
                 label_sparse = dense_sequence_to_sparse(
                     sequences=decoder_input.output_labels,
                     sequence_lengths=decoder_input.len_labels)
 
+                wer = tf.edit_distance(selected_sparse, label_sparse, normalize=True)
+                # wer_bias = tf.edit_distance(selected_sparse, label_sparse, normalize=True)
                 wer_bias = tf.edit_distance(argmax_sparse, label_sparse, normalize=True)
                 wer_bias = tf.stop_gradient(wer_bias)
-                wer = tf.edit_distance(selected_sparse, label_sparse, normalize=True)
                 reward = wer_bias - wer
-                max_wer = self.args.model.max_wer
-                min_reward = self.args.model.min_reward
+                max_wer = tf.convert_to_tensor(self.args.model.max_wer)
+                min_reward = tf.convert_to_tensor(self.args.model.min_reward)
                 reward = tf.where(wer<max_wer, reward, tf.zeros_like(reward))
                 reward = tf.where(reward>min_reward, reward, tf.zeros_like(reward))
 
@@ -119,7 +130,8 @@ class Seq2SeqPolicyModel(Seq2SeqModel):
         logging.info('\tbuild {} on {} succesfully! total model number: {}'.format(
             self.__class__.__name__, name_gpu, self.__class__.num_Model))
 
-        return (loss, gradients, sample_id, [wer_bias, wer], batch_loss) if self.is_train else sample_id
+        # return (loss, gradients, sample_id, [wer_bias, wer], sample_id_bias) if self.is_train else sample_id
+        return (loss, gradients, [argmax, selected], [wer_bias, wer], batch_loss) if self.is_train else sample_id
 
     def policy_ce_loss(self, logits, labels, len_labels, batch_reward):
         """

@@ -1,6 +1,7 @@
 '''@file rnn_decoder.py
 contains the general recurrent decoder class'''
 
+import logging
 from abc import ABCMeta, abstractmethod
 import tensorflow as tf
 from .decoder import Decoder
@@ -189,9 +190,8 @@ class RNNDecoder(Decoder):
                     name='TrainingHelper')
             else:
                 raise NotImplementedError
-
         else:
-            if self.args.beam_size > 0 and self:
+            if self.args.beam_size > 0:
                 helper = None
             else:
                 helper =tf.contrib.seq2seq.GreedyEmbeddingHelper(

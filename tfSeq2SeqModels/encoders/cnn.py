@@ -5,15 +5,18 @@ import numpy as np
 from .encoder import Encoder
 
 from tfModels.layers import conv_layer
-from tfTools.tfAudioTools import down_sample
+# from tfTools.tfAudioTools import down_sample
 
 
 class CNN(Encoder):
     def encode(self, features, len_feas):
-        num_conv_layers = self.args.model.encoder.num_conv_layers
-        num_filter = [32, 32, 96]
-        kernal = [(41,11), (21,11), (21,11)]
-        stride = [(2,2), (2,1), (2,1)]
+        # num_conv_layers = self.args.model.encoder.num_conv_layers
+        # num_filter = [32, 32, 32, 32, 96]
+        # kernal = [(41,11), (21,11), (21,11), (21,11), (21,11)]
+        # stride = [(2,2), (2,1), (1,1), (1,1), (1,1)]
+        num_filter = [32, 32, 32, 96]
+        kernal = [(41,11), (21,11), (21,11), (21,11)]
+        stride = [(2,2), (2,1), (1,1), (1,1)]
 
         hidden_output = features
         size_batch = tf.shape(features)[0]
@@ -22,7 +25,7 @@ class CNN(Encoder):
 
         conv_output = tf.expand_dims(hidden_output, -1)
 
-        for i in range(num_conv_layers):
+        for i in range(len(kernal)):
             conv_output = conv_layer(
                 conv_output,
                 filter_num=num_filter[i],

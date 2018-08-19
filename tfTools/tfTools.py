@@ -118,18 +118,13 @@ def dense_sequence_to_sparse(sequences, sequence_lengths):
             sparse_values=a_sparse.values,
             default_value=0)
     '''
-
     with tf.name_scope('dense_sequence_to_sparse'):
-
         #get all the non padding sequences
         indices = tf.cast(get_indices(sequence_lengths), tf.int64)
-
         #create the values
         values = tf.gather_nd(sequences, indices)
-
         #the shape
         shape = tf.cast(tf.shape(sequences), tf.int64)
-
         sparse = tf.SparseTensor(indices, values, shape)
 
     return sparse
