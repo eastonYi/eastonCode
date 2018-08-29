@@ -1,5 +1,5 @@
 import tensorflow as tf
-    
+
 
 def smoothing_cross_entropy(logits, labels, vocab_size, confidence):
   """Cross entropy with label smoothing to limit over-confidence."""
@@ -16,7 +16,7 @@ def smoothing_cross_entropy(logits, labels, vocab_size, confidence):
         depth=vocab_size,
         on_value=confidence,
         off_value=low_confidence)
-    xentropy = tf.nn.softmax_cross_entropy_with_logits(
+    xentropy = tf.nn.softmax_cross_entropy_with_logits_v2(
         logits=logits, labels=soft_targets)
     return xentropy - normalizing
 

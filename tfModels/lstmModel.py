@@ -3,11 +3,9 @@ import logging
 import sys
 from collections import namedtuple
 from tensorflow.contrib.layers import fully_connected
-from tensorflow.contrib.rnn import ResidualWrapper, DropoutWrapper
-from tensorflow.contrib.cudnn_rnn import CudnnCompatibleLSTMCell
 
 from tfTools.gradientTools import average_gradients, handle_gradients
-from tfModels.tools import warmup_exponential_decay, choose_device, l2_penalty
+from tfModels.tools import warmup_exponential_decay, choose_device
 from tfModels.layers import layer_normalize, build_cell, cell_forward
 
 
@@ -15,7 +13,7 @@ class LSTM_Model(object):
     num_Instances = 0
     num_Model = 0
 
-    def __init__(self, tensor_global_step, is_train, args, batch=None, name='model', global_step_init=None):
+    def __init__(self, tensor_global_step, is_train, args, batch=None, name='model'):
         # Initialize some parameters
         self.is_train = is_train
         self.num_gpus = args.num_gpus if is_train else 1
@@ -30,7 +28,6 @@ class LSTM_Model(object):
         self.list_pl = None
 
         self.global_step = tensor_global_step
-        self.global_step_init = global_step_init
 
         # Build graph
         self.list_run = list(self.build_graph() if is_train else self.build_infer_graph())
@@ -88,6 +85,9 @@ class LSTM_Model(object):
         return loss, tensors_input.shape_batch, infer
 
     def build_pl_input(self):
+        """
+        use for training. but recomend to use build_tf_input insted
+        """
         tensors_input = namedtuple('tensors_input',
             'feature_splits, label_splits, len_fea_splits, len_label_splits, shape_batch')
 
@@ -108,6 +108,10 @@ class LSTM_Model(object):
         return tensors_input
 
     def build_infer_input(self):
+        """
+        used for inference. For inference must use placeholder.
+        during the infer, we only get the decoded result and not use label
+        """
         tensors_input = namedtuple('tensors_input',
             'feature_splits, len_fea_splits, label_splits, len_label_splits, shape_batch')
 
@@ -127,6 +131,9 @@ class LSTM_Model(object):
         return tensors_input
 
     def build_tf_input(self):
+        """
+        stand training input
+        """
         tensors_input = namedtuple('tensors_input',
             'feature_splits, label_splits, len_fea_splits, len_label_splits, shape_batch')
 

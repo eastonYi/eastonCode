@@ -15,19 +15,19 @@ def get_tfdata_info(dir_tfdata, len_dataset, args, idx_init=150, dir_save_info='
     from tqdm import tqdm
     from tfTools.tfRecord import readTFRecord
 
-    feat, label = readTFRecord(dir_tfdata, args, transform=True)
-
-    config = tf.ConfigProto()
-    config.allow_soft_placement = True
-    config.gpu_options.allow_growth = True
-    config.log_device_placement = False
-    with tf.train.MonitoredTrainingSession(config=config) as sess:
-        list_len = []
-        for _ in tqdm(range(len_dataset)):
-            feature = sess.run(feat)
-            list_len.append(len(feature))
-
-    histogram(list_len, dir_save_info)
+    # feat, label = readTFRecord(dir_tfdata, args, transform=True)
+    #
+    # config = tf.ConfigProto()
+    # config.allow_soft_placement = True
+    # config.gpu_options.allow_growth = True
+    # config.log_device_placement = False
+    # with tf.train.MonitoredTrainingSession(config=config) as sess:
+    #     list_len = []
+    #     for _ in tqdm(range(len_dataset)):
+    #         feature = sess.run(feat)
+    #         list_len.append(len(feature))
+    #
+    # histogram(list_len, dir_save_info)
 
     list_num = []
     list_length = []
@@ -56,7 +56,7 @@ def get_tfdata_info(dir_tfdata, len_dataset, args, idx_init=150, dir_save_info='
     while idx < len(list_num):
         idx = next_idx(idx, energy)
         if not idx:
-            break 
+            break
         list_boundary.append(list_length[idx])
         list_batchsize.append(int(M / list_length[idx]))
 

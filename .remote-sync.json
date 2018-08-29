@@ -5,15 +5,15 @@
   "uploadOnSave": true,
   "useAtomicWrites": true,
   "deleteLocal": true,
-  "hostname": "172.18.36.82",
+  "hostname": "172.18.30.104",
   "port": "22",
-  "target": "/mnt/lustre/xushuang/easton/eastonCode",
+  "target": "/home/xwzhang/easton/eastonCode",
   "ignore": [
     ".remote-sync.json",
     ".git/**"
   ],
-  "username": "xushuang",
-  "password": "xushuang2speech",
+  "username": "xwzhang",
+  "password": "yz042618",
   "watch": [],
   "transport": "scp"
 }

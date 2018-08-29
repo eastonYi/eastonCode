@@ -1,0 +1,4 @@
+python_speech_features
+tqdm
+soundfile
+editdistance

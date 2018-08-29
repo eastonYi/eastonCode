@@ -15,7 +15,6 @@ from pathlib import Path
 from tfTools import tfAudioTools as tfAudio
 from tfTools.tfTools import sequence_mask
 from tfTools.tfAudioTools import splice, down_sample
-from tfTools.tfQueueBucket import bucket_by_sequence_length
 
 
 def save2tfrecord(dataset, dir_save, size_file=5000000):

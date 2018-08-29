@@ -11,12 +11,9 @@ from tfModels.layers import conv_layer
 class CNN(Encoder):
     def encode(self, features, len_feas):
         # num_conv_layers = self.args.model.encoder.num_conv_layers
-        # num_filter = [32, 32, 32, 32, 96]
-        # kernal = [(41,11), (21,11), (21,11), (21,11), (21,11)]
-        # stride = [(2,2), (2,1), (1,1), (1,1), (1,1)]
         num_filter = [32, 32, 32, 96]
         kernal = [(41,11), (21,11), (21,11), (21,11)]
-        stride = [(2,2), (2,1), (1,1), (1,1)]
+        stride = [(2,2), (2,1), (2,1), (1,1)]
 
         hidden_output = features
         size_batch = tf.shape(features)[0]

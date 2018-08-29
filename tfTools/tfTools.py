@@ -130,7 +130,7 @@ def dense_sequence_to_sparse(sequences, sequence_lengths):
     return sparse
 
 
-def batch_pad(p, length, pad, direct='r'):
+def batch_pad(p, length, pad, direct='head'):
     """
     add the length
     Demo:

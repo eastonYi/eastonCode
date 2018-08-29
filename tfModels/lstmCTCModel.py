@@ -13,31 +13,8 @@ logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format='%(levelname)
 
 class LSTM_CTC_Model(LSTM_Model):
 
-    def __init__(self, tensor_global_step, mode, args, batch=None, name='tf_CTC_Model'):
-        self.name = name
-        # Initialize some parameters
-        self.mode = mode
-        self.is_train = (mode == 'train')
-        self.num_gpus = args.num_gpus if self.is_train else 1
-        self.list_gpu_devices = args.list_gpus
-        self.center_device = "/cpu:0"
-        self.learning_rate = None
-        self.args = args
-        self.batch = batch
-        self.build_input = self.build_tf_input if batch else self.build_pl_input
-
-        self.list_pl = None
-
-        self.global_step = tensor_global_step
-
-        if mode == 'train':
-            self.list_run = list(self.build_graph())
-        elif mode == 'dev':
-            self.list_run = list(self.build_dev_graph())
-        elif mode == 'infer':
-            self.list_run = list(self.build_infer_graph())
-        else:
-            raise "unknow mode!"
+    def __init__(self, tensor_global_step, is_train, args, batch=None, name='tf_CTC_Model'):
+        super().__init__(tensor_global_step, is_train, args, batch, name)
 
     def build_single_graph(self, id_gpu, name_gpu, tensors_input):
         num_class = self.args.dim_output + 1
@@ -58,14 +35,13 @@ class LSTM_CTC_Model(LSTM_Model):
                 inputs=hidden_output,
                 num_outputs=num_class)
 
-            # CTC loss
-            loss = self.ctc_loss(
-                logits=logits,
-                len_logits=len_logits,
-                labels=tensors_input.label_splits[id_gpu],
-                len_labels=tensors_input.len_label_splits[id_gpu])
-
             if self.is_train:
+                loss = self.ctc_loss(
+                    logits=logits,
+                    len_logits=len_logits,
+                    labels=tensors_input.label_splits[id_gpu],
+                    len_labels=tensors_input.len_label_splits[id_gpu])
+
                 with tf.name_scope("gradients"):
                     gradients = self.optimizer.compute_gradients(loss)
 
@@ -76,7 +52,7 @@ class LSTM_CTC_Model(LSTM_Model):
         if self.is_train:
             return loss, gradients
         else:
-            return loss, logits, len_logits
+            return logits, len_logits
 
     def ctc_loss(self, logits, len_logits, labels, len_labels):
         with tf.name_scope("ctc_loss"):
@@ -95,44 +71,37 @@ class LSTM_CTC_Model(LSTM_Model):
 
     def build_infer_graph(self):
         # cerate input tensors in the cpu
-        beam_size = self.args.beam_size
-        tensors_input = self.build_input()
+        tensors_input = self.build_infer_input()
 
         with tf.variable_scope(self.name, reuse=bool(self.__class__.num_Model)):
-            loss, logits, len_logits = self.build_single_graph(
+            logits, len_logits = self.build_single_graph(
                 id_gpu=0,
                 name_gpu=self.list_gpu_devices[0],
                 tensors_input=tensors_input)
-            logits_timeMajor = tf.transpose(logits, [1, 0, 2])
 
-            if beam_size == 1:
-                decoded = tf.to_int32(tf.nn.ctc_greedy_decoder(
-                    logits_timeMajor,
-                    len_logits)[0][0])
-            else:
-                decoded = tf.to_int32(tf.nn.ctc_beam_search_decoder(
-                    logits_timeMajor,
-                    len_logits,
-                    beam_width=beam_size)[0][0])
-
+            decoded_sparse = self.ctc_decode(logits, len_logits)
             decoded = tf.sparse_to_dense(
-                sparse_indices=decoded.indices,
-                output_shape=decoded.dense_shape,
-                sparse_values=decoded.values,
+                sparse_indices=decoded_sparse.indices,
+                output_shape=decoded_sparse.dense_shape,
+                sparse_values=decoded_sparse.values,
                 default_value=-1,
                 validate_indices=True)
             distribution = tf.nn.softmax(logits)
 
-        return loss, tensors_input.shape_batch, distribution, decoded
+        return decoded, tensors_input.shape_batch, distribution
 
-    def build_dev_graph(self):
-        # just need loss
-        tensors_input = self.build_input()
+    def ctc_decode(self, logits, len_logits):
+        beam_size = self.args.beam_size
+        logits_timeMajor = tf.transpose(logits, [1, 0, 2])
 
-        with tf.variable_scope(self.name, reuse=bool(self.__class__.num_Model)):
-            loss, logits, len_logits = self.build_single_graph(
-                id_gpu=0,
-                name_gpu=self.list_gpu_devices[0],
-                tensors_input=tensors_input)
+        if beam_size == 1:
+            decoded_sparse = tf.to_int32(tf.nn.ctc_greedy_decoder(
+                logits_timeMajor,
+                len_logits)[0][0])
+        else:
+            decoded_sparse = tf.to_int32(tf.nn.ctc_beam_search_decoder(
+                logits_timeMajor,
+                len_logits,
+                beam_width=beam_size)[0][0])
 
-        return loss, tensors_input.shape_batch
+        return decoded_sparse

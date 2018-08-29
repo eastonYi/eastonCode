@@ -31,6 +31,8 @@ class Seq2SeqModel(LSTM_Model):
         self.embed_table_decoder = embed_table_decoder
         if embed_table_encoder:
             self.build_pl_input = self.build_idx_input
+        self.helper_type = args.model.decoder.trainHelper if is_train \
+            else args.model.decoder.inferHelper
 
         super().__init__(tensor_global_step, is_train, args, batch=batch, name=name)
 
@@ -51,6 +53,7 @@ class Seq2SeqModel(LSTM_Model):
             encoder_input = encoder.build_input(
                 id_gpu=id_gpu,
                 tensors_input=tensors_input)
+
             encoded, len_encoded = encoder(encoder_input)
 
             decoder_input = decoder.build_input(
@@ -58,9 +61,14 @@ class Seq2SeqModel(LSTM_Model):
                 encoded=encoded,
                 len_encoded=len_encoded,
                 tensors_input=tensors_input)
+            # if in the infer, the decoder_input.input_labels and len_labels are None
+            decoder.build_helper(
+                type=self.helper_type,
+                labels=decoder_input.input_labels,
+                len_labels=decoder_input.len_labels,
+                batch_size=tf.size(len_encoded))
 
             logits, sample_id, _ = decoder(decoder_input)
-
             if self.is_train:
                 loss = self.ce_loss(
                     logits=logits,
@@ -85,7 +93,7 @@ class Seq2SeqModel(LSTM_Model):
                 name_gpu=self.list_gpu_devices[0],
                 tensors_input=tensors_input)
 
-        return sample_id[:,:,0], tensors_input.shape_batch
+        return sample_id[:,:,0] if self.args.beam_size > 0 else sample_id, tensors_input.shape_batch
 
     def ce_loss(self, logits, labels, len_labels):
         """
@@ -97,8 +105,10 @@ class Seq2SeqModel(LSTM_Model):
                 logits=logits,
                 labels=labels,
                 vocab_size=self.args.dim_output,
-                confidence=self.args.label_smoothing_confidence
-            )
+                confidence=self.args.label_smoothing_confidence)
+            # crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(
+            #     labels=labels,
+            #     logits=logits)
             mask = tf.sequence_mask(
                 len_labels,
                 dtype=logits.dtype)

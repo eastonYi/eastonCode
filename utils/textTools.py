@@ -2,12 +2,76 @@ import re
 import codecs
 import unicodedata
 import numpy as np
+import editdistance as ed
 
 
 # Constants
 SPACE_TOKEN = '<space>'
 SPACE_INDEX = 0
 FIRST_INDEX = ord('a') - 1  # 0 is reserved to space
+
+
+def unpadding(list_idx, eos_idx):
+    """
+    Demo:
+        a = np.array([2,2,3,4,5,1,0,0,0])
+        unpadding(a, 1)
+        # array([2, 2, 3, 4, 5])
+    """
+    end_idx = np.where(list_idx==eos_idx)[0]
+    end_idx = end_idx[0] if len(end_idx)>0 else None
+
+    return list_idx[:end_idx]
+
+
+def batch_cer(result, reference, eos_idx):
+    """
+    result and reference are lists of tokens
+    eos_idx is the padding token or eos token
+    """
+    batch_dist = 0
+    batch_len = 0
+    for res, ref in zip(result, reference):
+        ref = unpadding(ref, eos_idx)
+        res = unpadding(res, eos_idx)
+        batch_dist += ed.eval(res, ref)
+        batch_len += len(ref)
+
+    return batch_dist, batch_len
+
+
+def batch_wer(result, reference, idx2token, unit, eos_idx, eos_idx_ref=None):
+    """
+    Args:
+        result and reference are lists of tokens idx
+        eos_idx is the padding token or eos token idx
+        idx2token is a dict form idx to token
+        seperator is what to join the tokens. If token is char, seperator is '';
+            if token is word, seperator is ' '.
+        eos_idx is the padding token idx or the eos token idx
+    """
+    batch_dist = 0
+    batch_len = 0
+    if eos_idx_ref:
+        eos_idx_ref = eos_idx
+    for res, ref in zip(result, reference):
+        res = unpadding(res, eos_idx)
+        ref = unpadding(ref, eos_idx_ref)
+        if unit == 'char':
+            res_txt = array_idx2char(res, idx2token, seperator='').split()
+            ref_txt = array_idx2char(ref, idx2token, seperator='').split()
+        elif unit == 'word':
+            res_txt = array_idx2char(res, idx2token, seperator=' ').split()
+            ref_txt = array_idx2char(ref, idx2token, seperator=' ').split()
+        elif unit == 'subword':
+            res_txt = array_idx2char(res, idx2token, seperator=' ').replace('@@ ', '').split()
+            ref_txt = array_idx2char(ref, idx2token, seperator=' ').replace('@@ ', '').split()
+        else:
+            raise NotImplementedError('not know unit!')
+        batch_dist += ed.eval(res_txt, ref_txt)
+        batch_len += len(ref_txt)
+
+    return batch_dist, batch_len
 
 
 def normalize_text(original, remove_apostrophe=True):

@@ -5,7 +5,7 @@ import logging
 from abc import ABCMeta, abstractmethod
 import tensorflow as tf
 from .decoder import Decoder
-from ..tools import helpers
+# from ..tools import helpers
 
 
 class RNNDecoder(Decoder):
@@ -36,36 +36,22 @@ class RNNDecoder(Decoder):
                 of [batch_size x ... ] tensors
         '''
         num_cell_units = self.args.model.decoder.num_cell_units
-        beam_size = self.args.beam_size
 
         #get the batch size
         batch_size = tf.shape(len_encoded)[0]
-
-        #create the decoder helper
-        helper = self.create_decoder_helper(labels, len_labels, batch_size)
 
         #create the rnn cell
         decoder_cell, decoder_init_state = self.create_DecoderCell_and_initState(
             num_cell_units=num_cell_units,
             encoded=encoded,
             len_encoded=len_encoded,
-            batch_size=batch_size,
-            beam_size=beam_size
-        )
-        if helper:
-            if helper.__class__.__name__ not in ['ScheduledArgmaxEmbeddingTrainingHelper']:
-                print('using: tf.contrib.seq2seq.BasicDecoder')
-                BasicDecoder = tf.contrib.seq2seq.BasicDecoder
-            else:
-                print('using: ..tools.basic_decoder.BasicDecoder')
-                from ..tools import basic_decoder
-                BasicDecoder = basic_decoder.BasicDecoder
+            batch_size=batch_size)
 
         #create the decoder
-        if helper:
-            decoder = BasicDecoder(
+        if self.helper:
+            decoder = tf.contrib.seq2seq.BasicDecoder(
                 cell=decoder_cell,
-                helper=helper,
+                helper=self.helper,
                 initial_state=decoder_init_state,
                 output_layer=None)
         else:
@@ -75,7 +61,7 @@ class RNNDecoder(Decoder):
                 start_tokens=tf.fill([batch_size], self.start_token),
                 end_token=self.end_token,
                 initial_state=decoder_init_state,
-                beam_width=beam_size,
+                beam_width=self.beam_size,
                 output_layer=None,
                 length_penalty_weight=self.args.length_penalty_weight)
 
@@ -85,11 +71,14 @@ class RNNDecoder(Decoder):
             maximum_iterations=self.max_decoder_len())
 
         if 'BeamSearch' in str(type(outputs)):
+            # logits = tf.reduce_sum(outputs.beam_search_decoder_output.scores, 1)[0]
             logits = tf.no_op()
             sample_id = outputs.predicted_ids
+            # sample_id = tf.Print(sample_id, [logits], message='scores: ', summarize=1000)
         else:
             logits = outputs.rnn_output
             sample_id = outputs.sample_id
+            # sample_id = tf.Print(sample_id, [tf.shape(sample_id)], message='sample_id: ', summarize=1000)
 
         return logits, sample_id, len_decode
 
@@ -109,8 +98,8 @@ class RNNDecoder(Decoder):
             an RNNCell object'''
 
 
-    def create_DecoderCell_and_initState(self, num_cell_units, encoded, len_encoded, batch_size, beam_size):
-        if self.is_train:
+    def create_DecoderCell_and_initState(self, num_cell_units, encoded, len_encoded, batch_size):
+        if self.beam_size <= 1:
             #create the rnn cell
             decoder_cell = self.create_cell(num_cell_units, encoded, len_encoded)
 
@@ -119,13 +108,13 @@ class RNNDecoder(Decoder):
                 batch_size=batch_size,
                 dtype=tf.float32)
         else:
-            encoded = tf.contrib.seq2seq.tile_batch(encoded, beam_size)
-            len_encoded = tf.contrib.seq2seq.tile_batch(len_encoded, beam_size)
+            encoded = tf.contrib.seq2seq.tile_batch(encoded, self.beam_size)
+            len_encoded = tf.contrib.seq2seq.tile_batch(len_encoded, self.beam_size)
             decoder_cell = self.create_cell(num_cell_units, encoded, len_encoded)
 
             #create the decoder_initial_state
             decoder_init_state = decoder_cell.zero_state(
-                batch_size=batch_size*beam_size,
+                batch_size=batch_size*self.beam_size,
                 dtype=tf.float32)
 
         return decoder_cell, decoder_init_state
@@ -161,42 +150,42 @@ class RNNDecoder(Decoder):
 
         return attention_mechanism
 
-    def create_decoder_helper(self, labels, len_labels, batch_size):
-        if self.is_train:
-            if self.args.model.decoder.helper_type == 'ScheduledEmbeddingTrainingHelper':
-                helper = tf.contrib.seq2seq.ScheduledEmbeddingTrainingHelper(
-                    inputs=self.embedding(labels),
-                    sequence_length=len_labels,
-                    embedding=self.embedding,
-                    sampling_probability=self.sample_prob)
-            elif self.args.model.decoder.helper_type == 'ScheduledArgmaxEmbeddingTrainingHelper':
-                helper = helpers.ScheduledArgmaxEmbeddingTrainingHelper(
-                    embedding=self.embedding,
-                    start_tokens=tf.fill([batch_size], self.start_token),
-                    end_token=self.end_token,
-                    softmax_temperature=self.args.model.decoder.softmax_temperature,
-                    sampling_probability=self.sample_prob)
-            elif self.args.model.decoder.helper_type == 'ScheduledSelectEmbeddingHelper':
-                helper = helpers.ScheduledSelectEmbeddingHelper(
-                    embedding=self.embedding,
-                    start_tokens=tf.fill([batch_size], self.start_token),
-                    end_token=self.end_token,
-                    softmax_temperature=self.args.model.decoder.softmax_temperature,
-                    sampling_probability=self.sample_prob)
-            elif self.args.model.decoder.helper_type == 'TrainingHelper':
-                helper = tf.contrib.seq2seq.TrainingHelper(
-                    inputs=self.embedding(labels),
-                    sequence_length=len_labels,
-                    name='TrainingHelper')
-            else:
-                raise NotImplementedError
-        else:
-            if self.args.beam_size > 0:
-                helper = None
-            else:
-                helper =tf.contrib.seq2seq.GreedyEmbeddingHelper(
-                    embedding=self.embedding,
-                    start_tokens=tf.fill([batch_size], self.start_token),
-                    end_token=self.end_token)
-
-        return helper
+    # def create_decoder_helper(self, labels, len_labels, batch_size, beam_size):
+    #     if self.is_train:
+    #         if self.args.model.decoder.helper_type == 'ScheduledEmbeddingTrainingHelper':
+    #             helper = tf.contrib.seq2seq.ScheduledEmbeddingTrainingHelper(
+    #                 inputs=self.embedding(labels),
+    #                 sequence_length=len_labels,
+    #                 embedding=self.embedding,
+    #                 sampling_probability=self.sample_prob)
+    #         elif self.args.model.decoder.helper_type == 'ScheduledArgmaxEmbeddingTrainingHelper':
+    #             helper = helpers.ScheduledArgmaxEmbeddingTrainingHelper(
+    #                 embedding=self.embedding,
+    #                 start_tokens=tf.fill([batch_size], self.start_token),
+    #                 end_token=self.end_token,
+    #                 softmax_temperature=self.args.model.decoder.softmax_temperature,
+    #                 sampling_probability=self.sample_prob)
+    #         elif self.args.model.decoder.helper_type == 'ScheduledSelectEmbeddingHelper':
+    #             helper = helpers.ScheduledSelectEmbeddingHelper(
+    #                 embedding=self.embedding,
+    #                 start_tokens=tf.fill([batch_size], self.start_token),
+    #                 end_token=self.end_token,
+    #                 softmax_temperature=self.args.model.decoder.softmax_temperature,
+    #                 sampling_probability=self.sample_prob)
+    #         elif self.args.model.decoder.helper_type == 'TrainingHelper':
+    #             helper = tf.contrib.seq2seq.TrainingHelper(
+    #                 inputs=self.embedding(labels),
+    #                 sequence_length=len_labels,
+    #                 name='TrainingHelper')
+    #         else:
+    #             raise NotImplementedError
+    #     else:
+    #         if beam_size > 0:
+    #             helper = None
+    #         else:
+    #             helper =tf.contrib.seq2seq.GreedyEmbeddingHelper(
+    #                 embedding=self.embedding,
+    #                 start_tokens=tf.fill([batch_size], self.start_token),
+    #                 end_token=self.end_token)
+    #
+    #     return helper

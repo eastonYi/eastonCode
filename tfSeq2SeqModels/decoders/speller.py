@@ -68,5 +68,5 @@ class Speller(RNNDecoder):
         return cell
 
     def zero_state(self):
-        
+
         return self.zero_state

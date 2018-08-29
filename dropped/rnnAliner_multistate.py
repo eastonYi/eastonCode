@@ -92,41 +92,6 @@ class RNA(LSTM_Model):
 
         return distribution, multi_state
 
-    def zero_state(self, num_cells, size_batch):
-        single_zero_state = self.cell.zero_state(size_batch, dtype=tf.float32)
-        single_zero_state_tensor = self.state2tensor(single_zero_state, size_batch)
-        multi_zero_state = tf.tile(
-            tf.expand_dims(single_zero_state_tensor, 0),
-            [num_cells, 1, 1, 1])
-
-        return multi_zero_state
-
-    def state2tensor(self, state, size_batch):
-        """
-        state: 3 x 2 x (5x14)
-        (LSTMStateTuple(c=<tf.Tensor shape=(5, 14) dtype=float32>, h=<tf.Tensor shape=(5, 14) dtype=float32>),
-         LSTMStateTuple(c=<tf.Tensor shape=(5, 14) dtype=float32>, h=<tf.Tensor shape=(5, 14) dtype=float32>),
-         LSTMStateTuple(c=<tf.Tensor shape=(5, 14) dtype=float32>, h=<tf.Tensor shape=(5, 14) dtype=float32>))
-
-        tensor: num_layers x 2 x batch x num_hidden
-        """
-        num_layers = self.args.num_decoder_layers
-        num_hidden = self.args.num_hidden_units
-        tensor = tf.reshape(
-            tf.stack(nest.flatten(state), 0),
-            [num_layers, 2, size_batch, num_hidden])
-        return tensor
-
-    def tensor2state(self, tensor):
-        """
-        tensor: num_layers x 2 x batch x num_hidden
-        """
-        num_hidden = tf.shape(tensor)[2]
-        size_batch = tf.shape(tensor)[3]
-        list_tensor = tf.unstack(tf.reshape(-1, size_batch, num_hidden))
-        single_state = nest.pack_sequence_as(self.cell.zero_state(), list_tensor)
-
-        return single_state
 
     def rna_loss(seqs_input, seqs_labels, seq_input_lens, seq_label_lens, multi_forward, embedding, rna):
         """
