@@ -36,8 +36,6 @@ class RNNDecoder(Decoder):
                 of [batch_size x ... ] tensors
         '''
         num_cell_units = self.args.model.decoder.num_cell_units
-
-        #get the batch size
         batch_size = tf.shape(len_encoded)[0]
 
         #create the rnn cell
@@ -97,7 +95,6 @@ class RNNDecoder(Decoder):
         Returns:
             an RNNCell object'''
 
-
     def create_DecoderCell_and_initState(self, num_cell_units, encoded, len_encoded, batch_size):
         if self.beam_size <= 1:
             #create the rnn cell
@@ -149,43 +146,3 @@ class RNNDecoder(Decoder):
             raise ValueError("Unknown attention option %s" % attention_option)
 
         return attention_mechanism
-
-    # def create_decoder_helper(self, labels, len_labels, batch_size, beam_size):
-    #     if self.is_train:
-    #         if self.args.model.decoder.helper_type == 'ScheduledEmbeddingTrainingHelper':
-    #             helper = tf.contrib.seq2seq.ScheduledEmbeddingTrainingHelper(
-    #                 inputs=self.embedding(labels),
-    #                 sequence_length=len_labels,
-    #                 embedding=self.embedding,
-    #                 sampling_probability=self.sample_prob)
-    #         elif self.args.model.decoder.helper_type == 'ScheduledArgmaxEmbeddingTrainingHelper':
-    #             helper = helpers.ScheduledArgmaxEmbeddingTrainingHelper(
-    #                 embedding=self.embedding,
-    #                 start_tokens=tf.fill([batch_size], self.start_token),
-    #                 end_token=self.end_token,
-    #                 softmax_temperature=self.args.model.decoder.softmax_temperature,
-    #                 sampling_probability=self.sample_prob)
-    #         elif self.args.model.decoder.helper_type == 'ScheduledSelectEmbeddingHelper':
-    #             helper = helpers.ScheduledSelectEmbeddingHelper(
-    #                 embedding=self.embedding,
-    #                 start_tokens=tf.fill([batch_size], self.start_token),
-    #                 end_token=self.end_token,
-    #                 softmax_temperature=self.args.model.decoder.softmax_temperature,
-    #                 sampling_probability=self.sample_prob)
-    #         elif self.args.model.decoder.helper_type == 'TrainingHelper':
-    #             helper = tf.contrib.seq2seq.TrainingHelper(
-    #                 inputs=self.embedding(labels),
-    #                 sequence_length=len_labels,
-    #                 name='TrainingHelper')
-    #         else:
-    #             raise NotImplementedError
-    #     else:
-    #         if beam_size > 0:
-    #             helper = None
-    #         else:
-    #             helper =tf.contrib.seq2seq.GreedyEmbeddingHelper(
-    #                 embedding=self.embedding,
-    #                 start_tokens=tf.fill([batch_size], self.start_token),
-    #                 end_token=self.end_token)
-    #
-    #     return helper

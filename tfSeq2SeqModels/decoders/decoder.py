@@ -12,7 +12,7 @@ class Decoder(object):
     '''a general decoder for an encoder decoder system
     converts the high level features into output logits
     '''
-    
+
     __metaclass__ = ABCMeta
 
     def __init__(self, args, is_train, global_step, embed_table=None, name=None):
@@ -109,7 +109,8 @@ class Decoder(object):
 
         return embeded
 
-    def build_helper(self, type, batch_size=None, labels=None, len_labels=None):
+    def build_helper(self, type, batch_size=None, labels=None, len_labels=None,
+                     encoded=None, len_encoded=None):
         """
         two types of helper:
             training: need labels, len_labels,
@@ -158,6 +159,13 @@ class Decoder(object):
             self.beam_size = 1
         elif type == 'BeamSearchDecoder':
             helper = None
+            self.beam_size = self.args.beam_size
+        elif type == 'RNAGreedyEmbeddingHelper':
+            helper = helpers.RNAGreedyEmbeddingHelper(
+                encoded=encoded,
+                len_encoded=len_encoded,
+                embedding=self.embedding,
+                start_tokens=tf.fill([batch_size], self.start_token))
             self.beam_size = self.args.beam_size
         else:
             raise NotImplementedError

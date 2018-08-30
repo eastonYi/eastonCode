@@ -93,7 +93,9 @@ class Seq2SeqModel(LSTM_Model):
                 name_gpu=self.list_gpu_devices[0],
                 tensors_input=tensors_input)
 
-        return sample_id[:,:,0] if self.args.beam_size > 0 else sample_id, tensors_input.shape_batch
+        if sample_id.get_shape().ndims == 3:
+            sample_id = sample_id[:,:,0]
+        return sample_id, tensors_input.shape_batch, tf.no_op()
 
     def ce_loss(self, logits, labels, len_labels):
         """

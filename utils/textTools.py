@@ -24,7 +24,7 @@ def unpadding(list_idx, eos_idx):
     return list_idx[:end_idx]
 
 
-def batch_cer(result, reference, eos_idx):
+def batch_cer(result, reference, eosid_res, eosid_ref):
     """
     result and reference are lists of tokens
     eos_idx is the padding token or eos token
@@ -32,15 +32,15 @@ def batch_cer(result, reference, eos_idx):
     batch_dist = 0
     batch_len = 0
     for res, ref in zip(result, reference):
-        ref = unpadding(ref, eos_idx)
-        res = unpadding(res, eos_idx)
+        res = unpadding(res, eosid_res)
+        ref = unpadding(ref, eosid_ref)
         batch_dist += ed.eval(res, ref)
         batch_len += len(ref)
 
     return batch_dist, batch_len
 
 
-def batch_wer(result, reference, idx2token, unit, eos_idx, eos_idx_ref=None):
+def batch_wer(result, reference, idx2token, unit, eosid_res, eosid_ref):
     """
     Args:
         result and reference are lists of tokens idx
@@ -52,11 +52,9 @@ def batch_wer(result, reference, idx2token, unit, eos_idx, eos_idx_ref=None):
     """
     batch_dist = 0
     batch_len = 0
-    if eos_idx_ref:
-        eos_idx_ref = eos_idx
     for res, ref in zip(result, reference):
-        res = unpadding(res, eos_idx)
-        ref = unpadding(ref, eos_idx_ref)
+        res = unpadding(res, eosid_res)
+        ref = unpadding(ref, eosid_ref)
         if unit == 'char':
             res_txt = array_idx2char(res, idx2token, seperator='').split()
             ref_txt = array_idx2char(ref, idx2token, seperator='').split()

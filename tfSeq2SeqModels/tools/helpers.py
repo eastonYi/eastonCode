@@ -1,6 +1,5 @@
 import tensorflow as tf
-
-from tensorflow.contrib.seq2seq import TrainingHelper, CustomHelper, GreedyEmbeddingHelper
+from tensorflow.contrib.seq2seq import TrainingHelper, CustomHelper, GreedyEmbeddingHelper, InferenceHelper
 
 
 class ScheduledArgmaxEmbeddingTrainingHelper(TrainingHelper):
@@ -68,6 +67,37 @@ class ScheduledArgmaxEmbeddingTrainingHelper(TrainingHelper):
 
             return (finished, next_inputs, state)
 
+
+class RNAGreedyEmbeddingHelper(GreedyEmbeddingHelper):
+    def __init__(self, encoded, len_encoded, embedding, start_tokens):
+        if callable(embedding):
+            self._embedding_fn = embedding
+        else:
+            self._embedding_fn = (
+                lambda ids: tf.nn.embedding_lookup(embedding, ids))
+
+        self._start_tokens = tf.convert_to_tensor(
+            start_tokens, dtype=tf.int32, name="start_tokens")
+        if self._start_tokens.get_shape().ndims != 1:
+            raise ValueError("start_tokens must be a vector")
+        self._batch_size = tf.size(start_tokens)
+        self._encoded = encoded
+        self._sequence_length = len_encoded
+        self._start_inputs = tf.concat(
+            [encoded[:, 0, :], self._embedding_fn(self._start_tokens)], -1)
+
+    def next_inputs(self, time, outputs, state, sample_ids, name=None):
+        with tf.name_scope(name, "RNANextInputs", [time, outputs, state]):
+            next_time = time + 1
+            finished = (next_time >= self._sequence_length)
+            all_finished = tf.reduce_all(finished)
+            inputs = tf.concat([self._encoded[:, time, :], self._embedding_fn(sample_ids)], -1)
+            next_inputs = tf.cond(
+                all_finished,
+                # If we're finished, the next_inputs value doesn't matter
+                lambda: self._start_inputs,
+                lambda: inputs)
+        return (finished, next_inputs, state)
 
 
 # class ScheduledArgmaxEmbeddingTrainingHelper(TrainingHelper):

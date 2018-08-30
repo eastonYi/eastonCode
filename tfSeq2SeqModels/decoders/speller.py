@@ -41,29 +41,25 @@ class Speller(RNNDecoder):
             dim_project=num_cell_project)
         self.zero_state = cell.zero_state
 
-        if encoded is not None:
-            #create the attention mechanism
-            attention_mechanism = self.create_attention_mechanism(
-                self.args.model.decoder.attention_mechanism,
-                num_units=num_cell_units,
-                memory=encoded,
-                source_sequence_length = len_encoded
-            )
+        #create the attention mechanism
+        attention_mechanism = self.create_attention_mechanism(
+            self.args.model.decoder.attention_mechanism,
+            num_units=num_cell_units,
+            memory=encoded,
+            source_sequence_length=len_encoded)
 
-            #add attention to the rnn cell
-            cell = tf.contrib.seq2seq.AttentionWrapper(
-                cell=cell,
-                attention_mechanism=attention_mechanism,
-                attention_layer_size=num_cell_units,
-                alignment_history=False,
-                output_attention=True
-            )
+        #add attention to the rnn cell
+        cell = tf.contrib.seq2seq.AttentionWrapper(
+            cell=cell,
+            attention_mechanism=attention_mechanism,
+            attention_layer_size=num_cell_units,
+            alignment_history=False,
+            output_attention=True)
 
         #the output layer
         cell = tf.contrib.rnn.OutputProjectionWrapper(
             cell=cell,
-            output_size=self.args.dim_output
-        )
+            output_size=self.args.dim_output)
 
         return cell
 
