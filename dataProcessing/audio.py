@@ -12,7 +12,6 @@ def audio2vector(audio_filename, dim_feature):
 
     # Get mfcc coefficients. numcep is the feature size
     orig_inputs = logfbank(sig, samplerate=rate, nfilt=dim_feature).astype(np.float32)
-
     orig_inputs = (orig_inputs - np.mean(orig_inputs)) / np.std(orig_inputs)
 
     return orig_inputs

@@ -26,7 +26,7 @@ class Encoder(object):
         self.is_train = is_train
         self.embed_table = embed_table
 
-    def __call__(self, encoder_input):
+    def __call__(self, features, len_feas):
         '''
         Create the variables and do the forward computation
 
@@ -43,12 +43,10 @@ class Encoder(object):
             - the sequence lengths of the outputs as a dictionary of
                 [batch_size] tensors
         '''
-
         with tf.variable_scope(self.name or 'encoder'):
-
             outputs, output_seq_length = self.encode(
-                features=encoder_input.features,
-                len_feas=encoder_input.len_feas)
+                features=features,
+                len_feas=len_feas)
 
         return outputs, output_seq_length
 
@@ -70,14 +68,6 @@ class Encoder(object):
             - the sequence lengths of the outputs as a dictionary of
                 [batch_size] tensors
         '''
-
-    def build_input(self, id_gpu, tensors_input):
-        encoder_input = namedtuple('encoder_input',
-            'features, labels, len_fea_splits, len_label_splits')
-        encoder_input.features = tensors_input.feature_splits[id_gpu]
-        encoder_input.len_feas = tensors_input.len_fea_splits[id_gpu]
-
-        return encoder_input
 
     def embedding(self, ids):
         if self.embed_table:

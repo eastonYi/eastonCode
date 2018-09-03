@@ -4,6 +4,7 @@ contains the speller functionality
 '''
 
 import tensorflow as tf
+from collections import namedtuple
 
 from .rnn_decoder import RNNDecoder
 from ..tools import helpers

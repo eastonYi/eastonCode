@@ -21,6 +21,8 @@ def load_vocab(path, vocab_size=None):
     idx2token.update({idx: token for idx, token in enumerate(vocab)})
     if '<space>' in vocab:
         idx2token[token2idx['<space>']] = ' '
+    if '<blk>' in vocab:
+        idx2token[token2idx['<blk>']] = ''
 
     assert len(token2idx) == len(idx2token)
 

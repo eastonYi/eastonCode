@@ -25,12 +25,10 @@ class LSTM_CTC_Model(LSTM_Model):
             encoder = Encoder(
                 is_train=self.is_train,
                 args=self.args)
-            encoder_input = encoder.build_input(
-                id_gpu=id_gpu,
-                tensors_input=tensors_input)
-
             # using encoder to encode the inout sequence
-            hidden_output, len_logits = encoder(encoder_input)
+            hidden_output, len_logits = encoder(
+                features=tensors_input.feature_splits[id_gpu],
+                len_feas=tensors_input.len_fea_splits[id_gpu])
             logits = fully_connected(
                 inputs=hidden_output,
                 num_outputs=num_class)

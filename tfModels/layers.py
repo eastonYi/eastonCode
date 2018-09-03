@@ -147,32 +147,52 @@ def cell_forward(cell, inputs, index_layer=0, initial_state=None):
     return lstm_output, state
 
 
-def conv_layer(inputs, filter_num, kernel, stride,
+def conv_layer(inputs, len_sequence, size_feat, num_filter, kernel, stride,
                padding='same', use_relu=True, scope='conv', norm_type="ln"):
     """
-    if cond1d, set stride=(1,1)
-    Demo:
-        from tfModels.layers import conv_layer
-
-        with tf.variable_scope('test', reuse=False):
-            inputs = tf.ones([10, 20, 40, 1])
-            conv_output = conv_layer(
-                        inputs,
-                        filter_num=8,
-                        kernel=(41,11),
-                        stride=(2,2))
-        sess.run(tf.shape(conv_output))
-        # array([10, 10, 20,  8], dtype=int32)
+    size_feat: real number, not tf type
     """
+    import numpy as np
     with tf.variable_scope(scope):
-        net = tf.layers.conv2d(inputs, filter_num, kernel, stride, padding, name="conv")
+        net = tf.layers.conv2d(inputs, num_filter, kernel, stride, padding, name="conv")
         if norm_type == "bn":
             net = tf.layers.batch_normalization(net, name="bn")
         elif norm_type == "ln":
             net = tf.contrib.layers.layer_norm(net)
         output = tf.nn.relu(net) if use_relu else net
 
-    return output
+        size_batch = tf.shape(inputs)[0]
+        size_length = tf.shape(inputs)[1]
+
+        # the shrink of the size_length
+        size_length = tf.cast(tf.ceil(tf.cast(size_length,tf.float32)/stride[0]), tf.int32)
+        size_feat = int(np.ceil(size_feat/stride[1]))*num_filter
+        hidden_output = tf.reshape(output, [size_batch, size_length, size_feat])
+
+        # the shrink of the sequence length
+        len_sequence = tf.cast(tf.ceil(tf.cast(len_sequence,tf.float32)/stride[0]),
+                           tf.int32)
+
+    return hidden_output, len_sequence, size_feat
+
+
+def conv_lstm(inputs, len_sequence, kernel_size, filters,
+              padding="SAME", dilation_rate=(1, 1), name='conv_lstm'):
+    """Convolutional LSTM in 1 dimension."""
+    from .tensor2tensor.common_layers import conv
+    with tf.variable_scope(name):
+        gates = conv(
+            inputs,
+            4 * filters,
+            kernel_size,
+            padding=padding,
+            dilation_rate=dilation_rate)
+        g = tf.split(tf.contrib.layers.layer_norm(gates, 4 * filters), 4, axis=3)
+        new_cell = tf.sigmoid(g[0]) * inputs + tf.sigmoid(g[1]) * tf.tanh(g[3])
+
+    hidden_output = tf.sigmoid(g[2]) * tf.tanh(new_cell)
+
+    return hidden_output, len_sequence
 
 
 class SimpleModel(object):

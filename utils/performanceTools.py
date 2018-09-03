@@ -39,6 +39,7 @@ def dev(step, dataloader, model, sess, unit, idx2token, eosid_res, eosid_ref):
             reference=batch[1],
             eosid_res=eosid_res,
             eosid_ref=eosid_ref,
+            idx2token=idx2token,
             unit=unit)
         _wer = batch_wer_dist/batch_wer_len
         total_wer_dist += batch_wer_dist
@@ -60,7 +61,6 @@ def dev(step, dataloader, model, sess, unit, idx2token, eosid_res, eosid_ref):
 
 def decode_test(step, sample, model, sess, unit, idx2token, eosid_res, eosid_ref):
     # sample = dataset_dev[0]
-
     dict_feed = {model.list_pl[0]: np.expand_dims(sample['feature'], axis=0),
                  model.list_pl[1]: np.array([len(sample['feature'])])}
     sampled_id, shape_sample, _ = sess.run(model.list_run, feed_dict=dict_feed)
@@ -71,7 +71,7 @@ def decode_test(step, sample, model, sess, unit, idx2token, eosid_res, eosid_ref
         result_txt = array_idx2char(res, idx2token, seperator='')
         ref_txt = array_idx2char(ref, idx2token, seperator='')
     elif unit == 'word':
-        result_txt = array_idx2char(res, idx2token, seperator=' ')
+        result_txt = ' '.join(array_idx2char(res, idx2token, seperator=' ').split())
         ref_txt = array_idx2char(ref, idx2token, seperator=' ')
     elif unit == 'subword':
         result_txt = array_idx2char(res, idx2token, seperator=' ').replace('@@ ', '')

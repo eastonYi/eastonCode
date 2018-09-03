@@ -50,16 +50,12 @@ class Seq2SeqModel(LSTM_Model):
                 args=self.args)
             self.sample_prob = decoder.sample_prob
 
-            encoder_input = encoder.build_input(
-                id_gpu=id_gpu,
-                tensors_input=tensors_input)
-
-            encoded, len_encoded = encoder(encoder_input)
+            encoded, len_encoded = encoder(
+                features=tensors_input.feature_splits[id_gpu],
+                len_feas=tensors_input.len_fea_splits[id_gpu])
 
             decoder_input = decoder.build_input(
                 id_gpu=id_gpu,
-                encoded=encoded,
-                len_encoded=len_encoded,
                 tensors_input=tensors_input)
             # if in the infer, the decoder_input.input_labels and len_labels are None
             decoder.build_helper(
@@ -68,7 +64,8 @@ class Seq2SeqModel(LSTM_Model):
                 len_labels=decoder_input.len_labels,
                 batch_size=tf.size(len_encoded))
 
-            logits, sample_id, _ = decoder(decoder_input)
+            logits, sample_id, _ = decoder(encoded, len_encoded)
+
             if self.is_train:
                 loss = self.ce_loss(
                     logits=logits,

@@ -6,12 +6,15 @@ from queue import Queue
 import threading
 import time
 import collections
+from random import shuffle, random
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from dataProcessing.audio import audio2vector, process_raw_feature
 from abc import ABCMeta, abstractmethod
 
 from utils.tools import size_bucket_to_put
 
 logging.basicConfig(level=logging.DEBUG, format='%(levelname)s(%(filename)s:%(lineno)d): %(message)s')
+
 
 class DataSet:
     __metaclass__ = ABCMeta
@@ -39,6 +42,134 @@ class DataSet:
     def __call__(self, idx):
 
         return self.__getitem__(idx)
+
+
+class ASRDataSet(DataSet):
+    def __init__(self, list_files, args, transform=True):
+        self.list_files = list_files
+        self.transform = transform
+        self.args = args
+        self.token2idx, self.idx2token = args.token2idx, args.idx2token
+        self.end_id = self.gen_end_id(self.token2idx)
+
+    def gen_end_id(self, token2idx):
+        if '<eos>' in token2idx.keys():
+            eos_id = [token2idx['<eos>']]
+        else:
+            eos_id = []
+
+        return eos_id
+
+
+class ASR_csv_DataSet(ASRDataSet):
+    def __init__(self, list_files, args, transform=True):
+        super().__init__(list_files, args, transform)
+        self.list_utterances = self.gen_utter_list(list_files)
+        self.shuffle_list_files()
+
+    def __getitem__(self, idx):
+        utterance = self.list_utterances[idx]
+        wav, seq_label = utterance.strip().split(',')
+        fea = audio2vector(wav, self.args.data.dim_raw_input)
+        if self.transform:
+            fea = process_raw_feature(fea, self.args)
+
+        seq_label = np.array(
+            [self.token2idx.get(word, self.token2idx['<unk>'])
+            for word in seq_label.split(' ')] + self.end_id,
+            dtype=np.int32)
+
+        sample = {'id': wav, 'feature': fea, 'label': seq_label}
+
+        return sample
+
+    @staticmethod
+    def gen_utter_list(list_files):
+        list_utter = []
+        for file in list_files:
+            with open(file) as f:
+                list_utter.extend(f.readlines())
+        return list_utter
+
+    def shuffle_list_files(self):
+        shuffle(self.list_utterances)
+
+    def __len__(self):
+        return len(self.list_utterances)
+
+
+class ASR_scp_DataSet(ASRDataSet):
+    def __init__(self, f_scp, f_trans, f_vocab, args, transform=True):
+        """
+        Args:
+            f_scp: the scp file consists of paths to feature data
+            f_trans: the scp file consists of id and trans
+            f_id2label: the normalized transcripts
+            f_vocab: the vocab of the transcripts
+        """
+        from tfkaldi.processing.ark import ArkReader
+        self.list_files = [f_scp]
+        super().__init__(self.list_files, args, transform)
+        self.reader = ArkReader(f_scp)
+        self.id2trans = self.gen_id2trans(f_trans)
+
+    def __getitem__(self, idx):
+        sample = {}
+        try:
+            sample['feature'] = self.reader.read_utt_data(idx)
+            if self.transform:
+                sample['feature'] = process_raw_feature(sample['feature'], self.args)
+
+            trans = self.id2trans[self.reader.utt_ids[idx]]
+            sample['label'] = np.array(
+                [self.token2idx.get(token, self.token2idx['<unk>'])
+                for token in trans] + self.end_id,
+                dtype=np.int32)
+            sample['id'] = self.reader.utt_ids[idx]
+        except:
+            print('Not fond {}!'.format(self.reader.utt_ids[idx]))
+            sample = None
+
+        return sample
+
+    def __len__(self):
+        return len(self.reader.utt_ids)
+
+    def gen_id2trans(self, f_trans):
+        id2trans = {}
+        with open(f_trans) as f:
+            for line in f:
+                line = line.strip().split(' ')
+                id = line[0]
+                trans = line[1:]
+                id2trans[id] = trans
+
+        return id2trans
+
+
+class FakeDataSet(DataSet):
+    def __init__(self):
+        self.dim_feature = 3
+
+    def __getitem__(self, idx):
+        sample = {}
+        sample['label'] = np.random.randint(self.dim_feature, size=randint(5, 10), dtype=np.int32)
+        sample['feature'] = self.embedding(sample['label'])
+
+        return sample
+
+    def __len__(self):
+
+        return 100
+
+    def embedding(self, list_idx):
+        list_embeded = []
+        for idx in list_idx:
+            embeded = np.zeros([self.dim_feature], dtype=np.float32)
+            embeded[idx] = 1
+            list_embeded.append(embeded)
+
+        return list_embeded
 
 
 class SimpleDataLoader:
@@ -308,29 +439,20 @@ class DataLoader(SimpleDataLoader):
             self.list_seq_labels = []
 
 
-class FakeDataSet(DataSet):
-    def __init__(self):
-        self.dim_feature = 3
+class ASRDataLoader(DataLoader):
+    def __init__(self, dataset, args, feat, label, total_loops=1, num_thread=4, size_queue=2000):
+        super().__init__(dataset, args, total_loops=total_loops, num_thread=num_thread, size_queue=size_queue)
+        self.sess = None
+        self.feat = feat
+        self.label = label
+        self.size_dataset = len(dataset)
+        self.batch_size = args.batch_size
 
-    def __getitem__(self, idx):
-        sample = {}
-        sample['label'] = np.random.randint(self.dim_feature, size=randint(5, 10), dtype=np.int32)
-        sample['feature'] = self.embedding(sample['label'])
-
-        return sample
+    def __iter__(self):
+        return self.batch_with_tfReader()
 
     def __len__(self):
-
-        return 100
-
-    def embedding(self, list_idx):
-        list_embeded = []
-        for idx in list_idx:
-            embeded = np.zeros([self.dim_feature], dtype=np.float32)
-            embeded[idx] = 1
-            list_embeded.append(embeded)
-
-        return list_embeded
+        return self.size_dataset
 
 
 if __name__ == '__main__':

@@ -13,7 +13,7 @@ class RNNDecoder(Decoder):
 
     __metaclass__ = ABCMeta
 
-    def _decode(self, encoded, len_encoded, labels, len_labels):
+    def _decode(self, encoded, len_encoded):
         '''
         Create the variables and do the forward computation to decode an entire
         sequence

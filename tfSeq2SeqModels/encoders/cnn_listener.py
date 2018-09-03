@@ -5,9 +5,9 @@ import tensorflow as tf
 from .encoder import Encoder
 
 from nabu.neuralnetworks.components import layer
+from tfModels.layers import conv_layer
 
-
-class Listener(Encoder):
+class CNN_Listener(Encoder):
     '''a listener object
     transforms input features into a high level representation'''
 
@@ -28,9 +28,23 @@ class Listener(Encoder):
         num_blayers = self.args.model.encoder.num_blayers
         num_cell_units = self.args.model.encoder.num_cell_units
         dropout = self.args.model.encoder.dropout
+        size_feat = self.args.data.dim_input
 
-        outputs = features
-        output_seq_lengths = len_feas
+        # the first cnn layer
+        conv_output = tf.expand_dims(features, -1)
+        len_sequence = len_feas
+        conv_output, len_sequence, size_feat = conv_layer(
+            inputs=conv_output,
+            len_sequence=len_sequence,
+            size_feat=size_feat,
+            num_filter=64,
+            kernel=(3,3),
+            stride=(2,2),
+            scope='en_conv_0')
+
+        # the second pblstm layer
+        outputs = conv_output
+        output_seq_lengths = len_sequence
         for l in range(num_pblayers):
             outputs, output_seq_lengths = layer.pblstm(
                 inputs=outputs,
@@ -43,6 +57,7 @@ class Listener(Encoder):
             if dropout > 0 and self.is_train:
                 outputs = tf.nn.dropout(outputs, keep_prob=1.0-dropout)
 
+        # the third blstm layer
         for l in range(num_blayers):
             outputs = layer.blstm(
                 inputs=outputs,

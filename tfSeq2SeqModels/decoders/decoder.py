@@ -42,7 +42,7 @@ class Decoder(object):
             start_warmup_steps=self.args.model.decoder.start_warmup_steps,
             step_increasement=self.args.model.decoder.step_increasement)
 
-    def __call__(self, decoder_input):
+    def __call__(self, encoded, len_encoded):
         '''
         Create the variables and do the forward computation to decode an entire
         sequence
@@ -55,26 +55,22 @@ class Decoder(object):
                 of [batch_size x ... ] tensors
         '''
         with tf.variable_scope(self.name or 'decoder'):
-            logits, sample_id, len_decode = self._decode(
-                encoded=decoder_input.encoded,
-                len_encoded=decoder_input.len_encoded,
-                labels=decoder_input.input_labels,
-                len_labels=decoder_input.len_labels)
+            logits, sample_id, len_decode = self._decode(encoded, len_encoded)
 
         return logits, sample_id, len_decode
 
-    def build_input(self, id_gpu, encoded, len_encoded, tensors_input):
+    def build_input(self, id_gpu, tensors_input):
         """
         the decoder label input is tensors_input.labels left concat <sos>,
         the lengths correspond add 1.
         Create a tgt_input prefixed with <sos> and
         PLEASE create a tgt_output suffixed with <eos> in the ce_loss.
+
+        we need to pass the tensors_input in to judge whether there is
+        tensors_input.label_splits
         """
         decoder_input = namedtuple('decoder_input',
-            'encoded, label, len_encoded_splits, len_label_splits, shape_batch')
-
-        decoder_input.encoded = encoded
-        decoder_input.len_encoded = len_encoded
+            'input_labels, output_labels, len_labels')
 
         if tensors_input.label_splits:
             decoder_input.output_labels = tensors_input.label_splits[id_gpu]
@@ -118,8 +114,12 @@ class Decoder(object):
         """
         from ..tools import helpers
 
-        batch_size = tf.size(len_labels) if len_labels is not None else batch_size
-        assert batch_size is not None
+        if len_labels is not None:
+            batch_size = tf.size(len_labels)
+        elif len_encoded is not None:
+            batch_size = tf.size(len_encoded)
+        else:
+            assert batch_size is not None
 
         if type == 'ScheduledEmbeddingTrainingHelper':
             helper = tf.contrib.seq2seq.ScheduledEmbeddingTrainingHelper(
@@ -166,7 +166,7 @@ class Decoder(object):
                 len_encoded=len_encoded,
                 embedding=self.embedding,
                 start_tokens=tf.fill([batch_size], self.start_token))
-            self.beam_size = self.args.beam_size
+            self.beam_size = 1
         else:
             raise NotImplementedError
 
