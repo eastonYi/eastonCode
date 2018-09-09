@@ -2,14 +2,17 @@
 contains the listener code'''
 
 import tensorflow as tf
+import numpy as np
 from .encoder import Encoder
 
-from nabu.neuralnetworks.components import layer
-from tfModels.layers import conv_lstm
+from tfModels.tensor2tensor.common_layers import conv_lstm
+from tfModels.tensor2tensor.dcommon_layers import normal_conv, blstm_cell, normal_pooling
+
 
 class CONV_LSTM(Encoder):
     '''a listener object
-    transforms input features into a high level representation'''
+    transforms input features into a high level representation
+    '''
 
     def encode(self, features, len_feas):
         '''
@@ -24,43 +27,147 @@ class CONV_LSTM(Encoder):
             - [bath_size x time x ...] tensor
             - [batch_size] tensor
         '''
-        num_pblayers = self.args.model.encoder.num_pblayers
-        num_blayers = self.args.model.encoder.num_blayers
         num_cell_units = self.args.model.encoder.num_cell_units
-        dropout = self.args.model.encoder.dropout
         size_feat = self.args.data.dim_input
 
+        # x = tf.expand_dims(features, -1)
+        size_batch  = tf.shape(features)[0]
+        size_length = tf.shape(features)[1]
+        x = tf.reshape(features, [size_batch, size_length, int(size_feat/3), 3])
         # the first cnn layer
-        conv_output = tf.expand_dims(features, -1)
-        conv_output, len_sequence = conv_lstm(conv_output, len_feas, (3,3), filters=64)
-        conv_output.set_shape([None, None, size_feat, None])
-        size_batch = tf.shape(conv_output)[0]
-        conv_output = tf.reshape(conv_output, [size_batch, -1, size_feat*64])
+        x = normal_conv(
+            inputs=x,
+            filter_num=64,
+            kernel=(3,3),
+            stride=(2,2),
+            padding='SAME',
+            use_relu=True,
+            name="conv",
+            w_initializer=None,
+            norm_type='layer')
+        x = conv_lstm(
+            x=x,
+            kernel_size=(3,3),
+            filters=64)
 
-        # the second pblstm layer
-        outputs = conv_output
+        size_feat = int(np.ceil(40/2))*64
+        size_length  = tf.cast(tf.ceil(tf.cast(size_length,tf.float32)/2), tf.int32)
+        len_sequence = tf.cast(tf.ceil(tf.cast(len_feas,tf.float32)/2), tf.int32)
+        x.set_shape([None, None, size_feat, None])
+        x = tf.reshape(x, [size_batch, size_length, size_feat])
+
+        # the second blstm layer
+        with tf.variable_scope('lstm_1'):
+            fwd_lstm_cell, bwd_lstm_cell = blstm_cell(
+                num_cell_units,
+                num_projs=None,
+                add_residual=False,
+                dropout=0.0)
+            x, _ = tf.nn.bidirectional_dynamic_rnn(
+              cell_fw=fwd_lstm_cell,
+              cell_bw=bwd_lstm_cell,
+              inputs=x,
+              dtype=tf.float32,
+              time_major=False,
+              sequence_length=len_sequence)
+            x = tf.concat(x, 2)
+            x = tf.expand_dims(x, axis=2)
+            x = normal_conv(
+                x,
+                num_cell_units,
+                (1, 1),
+                (1, 1),
+                'SAME',
+                'True',
+                name="tdnn",
+                norm_type='layer')
+            x = normal_pooling(x, (2, 1), (2, 1), 'SAME')
+            x = tf.squeeze(x, axis=2)
+            len_sequence = tf.cast(tf.ceil(tf.cast(len_sequence, tf.float32)/2), tf.int32)
+
+        with tf.variable_scope('lstm_2'):
+            fwd_lstm_cell, bwd_lstm_cell = blstm_cell(
+                num_cell_units,
+                num_projs=None,
+                add_residual=False,
+                dropout=0.0)
+            x, _ = tf.nn.bidirectional_dynamic_rnn(
+              cell_fw=fwd_lstm_cell,
+              cell_bw=bwd_lstm_cell,
+              inputs=x,
+              dtype=tf.float32,
+              time_major=False,
+              sequence_length=len_sequence)
+            x = tf.concat(x, 2)
+            x = tf.expand_dims(x, axis=2)
+            x = normal_conv(
+                x,
+                num_cell_units,
+                (1, 1),
+                (1, 1),
+                'SAME',
+                'True',
+                name="tdnn",
+                norm_type='layer')
+            x = normal_pooling(x, (1, 1), (1, 1), 'SAME')
+            x = tf.squeeze(x, axis=2)
+
+        with tf.variable_scope('lstm_3'):
+            fwd_lstm_cell, bwd_lstm_cell = blstm_cell(
+                num_cell_units,
+                num_projs=None,
+                add_residual=False,
+                dropout=0.0)
+            x, _ = tf.nn.bidirectional_dynamic_rnn(
+              cell_fw=fwd_lstm_cell,
+              cell_bw=bwd_lstm_cell,
+              inputs=x,
+              dtype=tf.float32,
+              time_major=False,
+              sequence_length=len_sequence)
+            x = tf.concat(x, 2)
+            x = tf.expand_dims(x, axis=2)
+            x = normal_conv(
+                x,
+                num_cell_units,
+                (1, 1),
+                (1, 1),
+                'SAME',
+                'True',
+                name="tdnn",
+                norm_type='layer')
+            x = normal_pooling(x, (2, 1), (2, 1), 'SAME')
+            x = tf.squeeze(x, axis=2)
+            len_sequence = tf.cast(tf.ceil(tf.cast(len_sequence, tf.float32)/2), tf.int32)
+
+        with tf.variable_scope('lstm_4'):
+            fwd_lstm_cell, bwd_lstm_cell = blstm_cell(
+                num_cell_units,
+                num_projs=None,
+                add_residual=False,
+                dropout=0.0)
+            x, _ = tf.nn.bidirectional_dynamic_rnn(
+              cell_fw=fwd_lstm_cell,
+              cell_bw=bwd_lstm_cell,
+              inputs=x,
+              dtype=tf.float32,
+              time_major=False,
+              sequence_length=len_sequence)
+            x = tf.concat(x, 2)
+            x = tf.expand_dims(x, axis=2)
+            x = normal_conv(
+                x,
+                num_cell_units,
+                (1, 1),
+                (1, 1),
+                'SAME',
+                'True',
+                name="tdnn",
+                norm_type='layer')
+            x = normal_pooling(x, (1, 1), (1, 1), 'SAME')
+            x = tf.squeeze(x, axis=2)
+
+        outputs = x
         output_seq_lengths = len_sequence
-        for l in range(num_pblayers):
-            outputs, output_seq_lengths = layer.pblstm(
-                inputs=outputs,
-                sequence_length=output_seq_lengths,
-                num_units=num_cell_units,
-                num_steps=2,
-                layer_norm=True,
-                scope='en_pblstm_%d' % l)
-
-            if dropout > 0 and self.is_train:
-                outputs = tf.nn.dropout(outputs, keep_prob=1.0-dropout)
-
-        # the third blstm layer
-        for l in range(num_blayers):
-            outputs = layer.blstm(
-                inputs=outputs,
-                sequence_length=output_seq_lengths,
-                num_units=num_cell_units,
-                scope='en_blstm_%d' % (l+num_pblayers))
-
-            if dropout > 0 and self.is_train:
-                outputs = tf.nn.dropout(outputs, keep_prob=1.0-dropout)
 
         return outputs, output_seq_lengths

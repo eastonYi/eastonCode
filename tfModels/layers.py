@@ -176,6 +176,21 @@ def conv_layer(inputs, len_sequence, size_feat, num_filter, kernel, stride,
     return hidden_output, len_sequence, size_feat
 
 
+def normal_conv(inputs, filter_num, kernel, stride, padding, use_relu, name,
+                w_initializer=None, norm_type="batch"):
+  with tf.variable_scope(name):
+    net = tf.layers.conv2d(inputs, filter_num, kernel, stride, padding,
+                           kernel_initializer=w_initializer, name="conv")
+    if norm_type == "batch":
+      net = tf.layers.batch_normalization(net, name="bn")
+    elif norm_type == "layer":
+      net = tf.contrib.layers.layer_norm(net)
+    else:
+      net = net
+    output = tf.nn.relu(net) if use_relu else net
+    return output
+    
+
 def conv_lstm(inputs, len_sequence, kernel_size, filters,
               padding="SAME", dilation_rate=(1, 1), name='conv_lstm'):
     """Convolutional LSTM in 1 dimension."""

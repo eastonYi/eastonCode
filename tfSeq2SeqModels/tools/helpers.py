@@ -69,6 +69,10 @@ class ScheduledArgmaxEmbeddingTrainingHelper(TrainingHelper):
 
 
 class RNAGreedyEmbeddingHelper(GreedyEmbeddingHelper):
+    """
+    don't need the labels(and you can't give the label as you don't know the alignment)
+    so we can use the helper both in the training and infer phrases.
+    """
     def __init__(self, encoded, len_encoded, embedding, start_tokens):
         if callable(embedding):
             self._embedding_fn = embedding

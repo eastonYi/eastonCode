@@ -11,9 +11,12 @@ from tfTools.tfTools import dense_sequence_to_sparse
 logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format='%(levelname)s(%(filename)s:%(lineno)d): %(message)s')
 
 
-class LSTM_CTC_Model(LSTM_Model):
+class CTCModel(LSTM_Model):
 
-    def __init__(self, tensor_global_step, is_train, args, batch=None, name='tf_CTC_Model'):
+    def __init__(self, tensor_global_step, is_train, args, batch=None, name='tf_CTC_Model',
+                 encoder=None, decoder=None, embed_table_encoder=None, embed_table_decoder=None):
+        self.sample_prob = tf.convert_to_tensor(0.0)
+        self.merge_repeated = args.model.ctc_merge_repeated
         super().__init__(tensor_global_step, is_train, args, batch, name)
 
     def build_single_graph(self, id_gpu, name_gpu, tensors_input):
@@ -61,6 +64,7 @@ class LSTM_CTC_Model(LSTM_Model):
                 labels_sparse,
                 logits,
                 sequence_length=len_logits,
+                ctc_merge_repeated=self.merge_repeated,
                 ignore_longer_outputs_than_inputs=True,
                 time_major=False)
             loss = tf.reduce_mean(ctc_loss_batch) # utter-level ctc loss
@@ -95,11 +99,13 @@ class LSTM_CTC_Model(LSTM_Model):
         if beam_size == 1:
             decoded_sparse = tf.to_int32(tf.nn.ctc_greedy_decoder(
                 logits_timeMajor,
-                len_logits)[0][0])
+                len_logits,
+                merge_repeated=self.merge_repeated)[0][0])
         else:
             decoded_sparse = tf.to_int32(tf.nn.ctc_beam_search_decoder(
                 logits_timeMajor,
                 len_logits,
-                beam_width=beam_size)[0][0])
+                beam_width=beam_size,
+                merge_repeated=self.merge_repeated)[0][0])
 
         return decoded_sparse

@@ -5,7 +5,7 @@ from collections import namedtuple
 from tensorflow.contrib.layers import fully_connected
 
 from tfTools.gradientTools import average_gradients, handle_gradients
-from tfModels.tools import warmup_exponential_decay, choose_device
+from tfModels.tools import warmup_exponential_decay, choose_device, lr_decay_with_warmup
 from tfModels.layers import layer_normalize, build_cell, cell_forward
 
 
@@ -212,11 +212,19 @@ class LSTM_Model(object):
         return loss, gradients if self.is_train else logits
 
     def build_optimizer(self):
-        self.learning_rate = warmup_exponential_decay(self.global_step,
-                                                      warmup_steps=self.args.warmup_steps,
-                                                      peak=self.args.peak,
-                                                      decay_rate=0.5,
-                                                      decay_steps=self.args.decay_steps)
+        if self.args.learning_rate:
+            self.learning_rate = lr_decay_with_warmup(
+                self.global_step,
+                warmup_steps=self.args.warmup_steps,
+                hidden_units=self.args.model.encoder.num_cell_units)
+        else:
+            self.learning_rate = warmup_exponential_decay(
+                self.global_step,
+                warmup_steps=self.args.warmup_steps,
+                peak=self.args.peak,
+                decay_rate=0.5,
+                decay_steps=self.args.decay_steps)
+
         with tf.name_scope("optimizer"):
             if self.args.optimizer == "adam":
                 logging.info("Using ADAM as optimizer")

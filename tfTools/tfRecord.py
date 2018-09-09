@@ -46,7 +46,6 @@ def save2tfrecord(dataset, dir_save, size_file=5000000):
         example = tf.train.Example(
             features=tf.train.Features(
                 feature={'feature': _bytes_feature(sample['feature'].tostring()),
-                         # 'id': _bytes_feature(sample['id'])}
                          'label': _bytes_feature(sample['label'].tostring())}
             )
         )
@@ -63,12 +62,16 @@ def save2tfrecord(dataset, dir_save, size_file=5000000):
     return
 
 
-def readTFRecord(dir_data, args, shuffle=False, num_loops=1, transform=False):
-
+def readTFRecord(dir_data, args, shuffle=False, transform=False):
+    """
+    the tensor could run unlimitatly
+    """
     list_filenames = fentch_filelist(dir_data)
+    if not shuffle:
+        list_filenames.sort()
 
     filename_queue = tf.train.string_input_producer(
-        list_filenames, num_epochs=num_loops, shuffle=shuffle)
+        list_filenames, num_epochs=None, shuffle=shuffle)
 
     reader_tfRecord = tf.TFRecordReader()
     _, serialized_example = reader_tfRecord.read(filename_queue)
@@ -119,7 +122,7 @@ def fentch_filelist(dir_data):
 
 
 class TFReader:
-    def __init__(self, dir_tfdata, args, num_loops=None, is_train=True):
+    def __init__(self, dir_tfdata, args, is_train=True):
         self.is_train = is_train
         self.args = args
         self.sess = None
@@ -127,7 +130,6 @@ class TFReader:
         self.feat, self.label = readTFRecord(
             dir_tfdata,
             args,
-            num_loops=num_loops,
             shuffle=is_train,
             transform=True)
 

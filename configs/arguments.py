@@ -52,4 +52,5 @@ args.dim_output = len(args.token2idx)
 
 # learning rate
 # Linear Scaling Rule
-args.peak *= args.num_gpus
+if args.peak:
+    args.peak *= args.num_gpus

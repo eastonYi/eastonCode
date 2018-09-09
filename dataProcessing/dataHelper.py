@@ -173,9 +173,9 @@ class FakeDataSet(DataSet):
 
 
 class SimpleDataLoader:
-    def __init__(self, dataset, total_loops=1, batch_size=10):
+    def __init__(self, dataset, num_loops=1, batch_size=10):
         self.dataset = dataset
-        self.total_loops = total_loops
+        self.num_loops = num_loops
         self.batch_size = batch_size
         self.list_seq_features = []
         self.list_seq_labels = []
@@ -184,7 +184,7 @@ class SimpleDataLoader:
         return self.next_batch(self.batch_size)
 
     def next_batch(self, size_batch):
-        for _ in range(self.total_loops):
+        for _ in range(self.num_loops):
             for sample in self.dataset:
                 seq_features, seq_labels = sample['feature'], sample['label']
 
@@ -212,6 +212,10 @@ class SimpleDataLoader:
         Returns:
             numpy.ndarray: Padded list_seqs shape = (number_of_list_seqs, maxlen)
             list: original sequence lengths
+        DEmo:
+            >> padding_list_seqs([[21, 11, 3], [31,1]])
+            >> (array([[ 21.,  11.,   3.],
+                [ 31.,   1.,   0.]], dtype=float32), [3, 2])
         """
         len_x = [len(s) for s in list_seqs]
 
@@ -257,8 +261,8 @@ class DataLoader(SimpleDataLoader):
     '''
     Train/test/dev dataset API for loading via threads and delivering batches.
     '''
-    def __init__(self, dataset, args, total_loops=1, num_thread=4, size_queue=2000):
-        super().__init__(dataset, total_loops)
+    def __init__(self, dataset, args, num_loops=1, num_thread=4, size_queue=2000):
+        super().__init__(dataset, num_loops)
         self.args = args
         self.num_thread = num_thread
         self.queue_sample = Queue(maxsize=size_queue)
@@ -375,16 +379,16 @@ class DataLoader(SimpleDataLoader):
                     print()
                     # logging.info('the activate num threads to prepare data is: {}'.format(threading.active_count()-2))
                     time.sleep(3)
-                elif index_loop < self.total_loops-1:
+                elif index_loop < self.num_loops-1:
                     index_loop +=1
                     # logging.info('brefore the activate num threads to prepare data is: {}'.format(threading.active_count()-2))
                     self.thread_queue_put.join()
                     # logging.info('after the activate num threads to prepare data is: {}'.format(threading.active_count()-2))
                     self.thread_queue_put = threading.Thread(target=self.feed_queue)
                     self.thread_queue_put.start()
-                    logging.info('***=======  loop {}/{} for the dataset  =======***'.format(index_loop+1, self.total_loops))
+                    logging.info('***=======  loop {}/{} for the dataset  =======***'.format(index_loop+1, self.num_loops))
                 else:
-                    logging.info('finish iter dataset {} times'.format(self.total_loops))
+                    logging.info('finish iter dataset {} times'.format(self.num_loops))
                     break
 
         # Clean remain samples.
@@ -416,21 +420,21 @@ class DataLoader(SimpleDataLoader):
                     self.list_seq_features,
                     self.list_seq_labels)
 
-    def batch_with_tfReader(self):
-        for _ in range(len(self)):
+    def batch_with_tfReader(self, batch_size):
+        for _ in range(len(self)*self.num_loops):
             seq_features, seq_labels = self.sess.run([self.feat, self.label])
 
             self.list_seq_features.append(seq_features)
             self.list_seq_labels.append(seq_labels)
 
-            if len(self.list_seq_labels) >= self.batch_size:
+            if len(self.list_seq_labels) >= batch_size:
                 yield self.padding_list_seq_with_labels(
                     self.list_seq_features,
                     self.list_seq_labels)
                 self.list_seq_features = []
                 self.list_seq_labels = []
 
-        logging.info("clean the rest of dev data")
+        logging.info("clean the rest of data")
         if len(self.list_seq_features) > 0:
             yield self.padding_list_seq_with_labels(
                 self.list_seq_features,
@@ -440,16 +444,16 @@ class DataLoader(SimpleDataLoader):
 
 
 class ASRDataLoader(DataLoader):
-    def __init__(self, dataset, args, feat, label, total_loops=1, num_thread=4, size_queue=2000):
-        super().__init__(dataset, args, total_loops=total_loops, num_thread=num_thread, size_queue=size_queue)
+    def __init__(self, dataset, args, feat, label, batch_size, num_loops, num_thread=4, size_queue=2000):
+        super().__init__(dataset, args, num_loops=num_loops, num_thread=num_thread, size_queue=size_queue)
         self.sess = None
         self.feat = feat
         self.label = label
         self.size_dataset = len(dataset)
-        self.batch_size = args.batch_size
+        self.batch_size = batch_size
 
     def __iter__(self):
-        return self.batch_with_tfReader()
+        return self.batch_with_tfReader(self.batch_size)
 
     def __len__(self):
         return self.size_dataset

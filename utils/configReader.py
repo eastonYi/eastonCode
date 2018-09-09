@@ -29,12 +29,17 @@ class AttrDict(dict):
     """
 
     def __init__(self, *args, **kwargs):
-        super(AttrDict, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def __getattr__(self, item):
-        if type(self[item]) is dict:
-            self[item] = AttrDict(self[item])
-        return self[item]
+        try:
+            if type(self[item]) is dict:
+                self[item] = AttrDict(self[item])
+            res = self[item]
+        except:
+            print('not found {}'.format(item))
+            res = 'hahahahhaha'
+        return res
 
 
 if __name__ == '__main__':

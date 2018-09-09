@@ -53,23 +53,28 @@ def batch_wer(result, reference, idx2token, unit, eosid_res, eosid_ref):
     batch_dist = 0
     batch_len = 0
     for res, ref in zip(result, reference):
-        res = unpadding(res, eosid_res)
-        ref = unpadding(ref, eosid_ref)
-        if unit == 'char':
-            res_txt = array_idx2char(res, idx2token, seperator='').split()
-            ref_txt = array_idx2char(ref, idx2token, seperator='').split()
-        elif unit == 'word':
-            res_txt = array_idx2char(res, idx2token, seperator=' ').split()
-            ref_txt = array_idx2char(ref, idx2token, seperator=' ').split()
-        elif unit == 'subword':
-            res_txt = array_idx2char(res, idx2token, seperator=' ').replace('@@ ', '').split()
-            ref_txt = array_idx2char(ref, idx2token, seperator=' ').replace('@@ ', '').split()
-        else:
-            raise NotImplementedError('not know unit!')
-        batch_dist += ed.eval(res_txt, ref_txt)
-        batch_len += len(ref_txt)
+        list_res_txt = array2text(res, unit, idx2token, eosid_res).split()
+        list_ref_txt = array2text(ref, unit, idx2token, eosid_ref).split()
+        # print('res_txt: {}\nres_txt: {}'.format(list_res_txt, list_ref_txt))
+        # print('ref_txt: {}'.format(' '.join(list_ref_txt)))
+        batch_dist += ed.eval(list_res_txt, list_ref_txt)
+        batch_len += len(list_ref_txt)
 
     return batch_dist, batch_len
+
+
+def array2text(res, unit, idx2token, eosid):
+    res = unpadding(res, eosid)
+    if unit == 'char':
+        list_res_txt = array_idx2char(res, idx2token, seperator='')
+    elif unit == 'word':
+        list_res_txt = array_idx2char(res, idx2token, seperator=' ')
+    elif unit == 'subword':
+        list_res_txt = array_idx2char(res, idx2token, seperator=' ').replace('@@ ', '')
+    else:
+        raise NotImplementedError('not know unit!')
+
+    return list_res_txt
 
 
 def normalize_text(original, remove_apostrophe=True):

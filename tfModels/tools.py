@@ -1,4 +1,17 @@
 import tensorflow as tf
+import logging
+import numpy as np
+
+
+def size_variables():
+    total_size = 0
+    all_weights = {v.name: v for v in tf.trainable_variables()}
+    for v_name in sorted(list(all_weights)):
+        v = all_weights[v_name]
+        v_size = int(np.prod(np.array(v.shape.as_list())))
+        logging.info("Weight    %s\tshape    %s\tsize    %d" % (v.name[:-2].ljust(80), str(v.shape).ljust(20), v_size))
+        total_size += v_size
+    logging.info("Total trainable variables size: %d" % total_size)
 
 
 def smoothing_cross_entropy(logits, labels, vocab_size, confidence):
@@ -92,8 +105,11 @@ def cosine_decay_with_warmup(global_step,
 
 
 def create_embedding(size_vocab, size_embedding, name='embedding'):
-    with tf.device("/cpu:0"):
-        embed_table = tf.get_variable(name, [size_vocab, size_embedding])
+    if type(size_embedding) == int:
+        with tf.device("/cpu:0"):
+            embed_table = tf.get_variable(name, [size_vocab, size_embedding])
+    else:
+        embed_table = None
 
     return embed_table
 

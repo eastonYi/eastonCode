@@ -24,6 +24,24 @@ class AttrDict(dict):
         return self[item]
 
 
+class check_to_stop(object):
+    def __init__(self):
+        self.value_1 = 999
+        self.value_2 = 999
+        self.value_3 = 999
+
+    def __call__(self, new_value):
+        import sys
+
+        self.value_1 = self.value_2
+        self.value_2 = self.value_3
+        self.value_3 = new_value
+
+        if self.value_1 < self.value_2 < self.value_3 and new_value > self.value_2:
+            print('force exit!')
+            sys.exit()
+
+
 def padding_list_seqs(sequences, maxlen=None, dtype=np.float32, value=0., masking=True):
     '''
     Pads each sequence to the same length of the longest sequence.
@@ -177,3 +195,8 @@ def sparse_tuple_from(sequences):
 #         results[index] = results[index] + c
 #     # List of strings
 #     return results
+
+if __name__ == '__main__':
+    checker = check_to_stop()
+    for i in [5,4,3,3,2,1,1,2,2]:
+        checker(i)

@@ -3,9 +3,11 @@ contains the listener code'''
 
 import tensorflow as tf
 from .encoder import Encoder
+import numpy as np
 
 from nabu.neuralnetworks.components import layer
 from tfModels.layers import conv_layer
+from tfModels.tensor2tensor.dcommon_layers import normal_conv
 
 class CNN_Listener(Encoder):
     '''a listener object
@@ -31,20 +33,36 @@ class CNN_Listener(Encoder):
         size_feat = self.args.data.dim_input
 
         # the first cnn layer
-        conv_output = tf.expand_dims(features, -1)
-        len_sequence = len_feas
-        conv_output, len_sequence, size_feat = conv_layer(
-            inputs=conv_output,
-            len_sequence=len_sequence,
-            size_feat=size_feat,
-            num_filter=64,
+        size_batch  = tf.shape(features)[0]
+        size_length = tf.shape(features)[1]
+        x = tf.reshape(features, [size_batch, size_length, int(size_feat/3), 3])
+        x = normal_conv(
+            inputs=x,
+            filter_num=64,
             kernel=(3,3),
             stride=(2,2),
-            scope='en_conv_0')
+            padding='SAME',
+            use_relu=True,
+            name="conv",
+            w_initializer=None,
+            norm_type='layer')
+        # conv_output = tf.expand_dims(features, -1)
+        # len_sequence = len_feas
+        # conv_output, len_sequence, size_feat = conv_layer(
+        #     inputs=conv_output,
+        #     len_sequence=len_sequence,
+        #     size_feat=size_feat,
+        #     num_filter=64,
+        #     kernel=(3,3),
+        #     stride=(2,2),
+        #     scope='en_conv_0')
 
         # the second pblstm layer
-        outputs = conv_output
-        output_seq_lengths = len_sequence
+        size_feat = int(np.ceil(40/2))*64
+        size_length  = tf.cast(tf.ceil(tf.cast(size_length,tf.float32)/2), tf.int32)
+        output_seq_lengths = tf.cast(tf.ceil(tf.cast(len_feas,tf.float32)/2), tf.int32)
+        outputs = tf.reshape(x, [size_batch, size_length, size_feat])
+
         for l in range(num_pblayers):
             outputs, output_seq_lengths = layer.pblstm(
                 inputs=outputs,

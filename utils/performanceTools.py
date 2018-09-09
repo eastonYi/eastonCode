@@ -1,11 +1,9 @@
 #!/usr/bin/env python
-
 import numpy as np
 from time import time
 import logging
-import editdistance as ed
 
-from .textTools import array_idx2char, unpadding, batch_wer, batch_cer
+from .textTools import array_idx2char, unpadding, batch_wer, batch_cer, array2text
 
 
 def dev(step, dataloader, model, sess, unit, idx2token, eosid_res, eosid_ref):
@@ -54,7 +52,7 @@ def dev(step, dataloader, model, sess, unit, idx2token, eosid_res, eosid_ref):
     used_time = time() - start_time
     cer = total_cer_dist/total_cer_len
     wer = total_wer_dist/total_wer_len
-    logging.info('=====dev info, total used time {:.2f}h==== \nWER: {:.3f}'.format(used_time/3600, wer))
+    logging.info('=====dev info, total used time {:.2f}h==== \nWER: {:.3f}\ntotal_wer_len: {}'.format(used_time/3600, wer, total_wer_len))
 
     return cer, wer
 
@@ -65,19 +63,8 @@ def decode_test(step, sample, model, sess, unit, idx2token, eosid_res, eosid_ref
                  model.list_pl[1]: np.array([len(sample['feature'])])}
     sampled_id, shape_sample, _ = sess.run(model.list_run, feed_dict=dict_feed)
 
-    res = unpadding(sampled_id[0], eosid_res)
-    ref = unpadding(sample['label'], eosid_ref)
-    if unit == 'char':
-        result_txt = array_idx2char(res, idx2token, seperator='')
-        ref_txt = array_idx2char(ref, idx2token, seperator='')
-    elif unit == 'word':
-        result_txt = ' '.join(array_idx2char(res, idx2token, seperator=' ').split())
-        ref_txt = array_idx2char(ref, idx2token, seperator=' ')
-    elif unit == 'subword':
-        result_txt = array_idx2char(res, idx2token, seperator=' ').replace('@@ ', '')
-        ref_txt = array_idx2char(ref, idx2token, seperator=' ').replace('@@ ', '')
-    else:
-        raise 'unknown model unit! '
+    res_txt = array2text(sampled_id[0], unit, idx2token, eosid_res)
+    ref_txt = array2text(sample['label'], unit, idx2token, eosid_ref)
 
     logging.info('length: {}, res: \n{}\nref:\n{}'.format(
-                 shape_sample[1], result_txt, ref_txt))
+                 shape_sample[1], res_txt, ref_txt))
