@@ -115,9 +115,9 @@ class Decoder(object):
         from ..tools import helpers
 
         if len_labels is not None:
-            batch_size = tf.size(len_labels)
+            batch_size = tf.shape(len_labels)[0]
         elif len_encoded is not None:
-            batch_size = tf.size(len_encoded)
+            batch_size = tf.shape(len_encoded)[0]
         else:
             assert batch_size is not None
 

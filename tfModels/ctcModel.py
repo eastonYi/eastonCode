@@ -56,6 +56,10 @@ class CTCModel(LSTM_Model):
             return logits, len_logits
 
     def ctc_loss(self, logits, len_logits, labels, len_labels):
+        """
+        No valid path found: It is possible that no valid path is found if the
+        activations for the targets are zero.
+        """
         with tf.name_scope("ctc_loss"):
             labels_sparse = dense_sequence_to_sparse(
                 labels,
@@ -68,6 +72,17 @@ class CTCModel(LSTM_Model):
                 ignore_longer_outputs_than_inputs=True,
                 time_major=False)
             loss = tf.reduce_mean(ctc_loss_batch) # utter-level ctc loss
+
+        if self.args.model.confidence_penalty:
+            print('using confidence penalty')
+            with tf.name_scope("confidence_penalty"):
+                real_probs = tf.nn.softmax(logits)
+                prevent_nan_constant = tf.constant(1e-10)
+                real_probs += prevent_nan_constant
+
+                neg_entropy = tf.reduce_sum(real_probs * tf.log(real_probs), axis=-1)
+                ls_loss = self.args.model.confidence_penalty * tf.reduce_sum(neg_entropy, axis=-1)
+            loss += ls_loss
 
         return loss
 

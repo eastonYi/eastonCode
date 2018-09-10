@@ -86,7 +86,7 @@ class Seq2SeqPolicyModel(Seq2SeqModel):
                 type=self.helper_type,
                 labels=decoder_input.input_labels,
                 len_labels=decoder_input.len_labels,
-                batch_size=tf.size(len_encoded))
+                batch_size=tf.shape(len_encoded)[0])
 
             logits, sample_id, len_decode = decoder(decoder_input)
 
@@ -100,19 +100,19 @@ class Seq2SeqPolicyModel(Seq2SeqModel):
                         args=self.args)
                     decoder_bias.build_helper(
                         type='GreedyEmbeddingHelper',
-                        batch_size=tf.size(len_encoded))
+                        batch_size=tf.shape(len_encoded)[0])
                     _, sample_id_bias, len_decode_bias = decoder_bias(decoder_input)
 
                 argmax = sample_id_bias
                 argmax_sparse = dense_sequence_to_sparse(
-                    sequences=argmax,
-                    sequence_lengths=len_decode_bias)
+                    seq=argmax,
+                    len_seq=len_decode_bias)
                 sample_sparse = dense_sequence_to_sparse(
-                    sequences=sample_id,
-                    sequence_lengths=len_decode)
+                    seq=sample_id,
+                    len_seq=len_decode)
                 label_sparse = dense_sequence_to_sparse(
-                    sequences=decoder_input.output_labels,
-                    sequence_lengths=decoder_input.len_labels)
+                    seq=decoder_input.output_labels,
+                    len_seq=decoder_input.len_labels)
 
                 wer = tf.edit_distance(sample_sparse, label_sparse, normalize=True)
                 wer_bias = tf.edit_distance(argmax_sparse, label_sparse, normalize=True)
@@ -136,7 +136,10 @@ class Seq2SeqPolicyModel(Seq2SeqModel):
         logging.info('\tbuild {} on {} succesfully! total model number: {}'.format(
             self.__class__.__name__, name_gpu, self.__class__.num_Model))
 
-        return (loss, gradients, [argmax, sample_id], [wer_bias, wer], batch_loss) if self.is_train else sample_id
+        if self.is_train:
+            return loss, gradients, [argmax, sample_id], [wer_bias, wer], batch_loss
+        else:
+            return sample_id
 
     def policy_ce_loss(self, logits, labels, len_labels, batch_reward):
         """

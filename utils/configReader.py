@@ -38,7 +38,7 @@ class AttrDict(dict):
             res = self[item]
         except:
             print('not found {}'.format(item))
-            res = 'hahahahhaha'
+            res = None
         return res
 
 

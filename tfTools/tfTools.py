@@ -94,13 +94,13 @@ def label_smoothing(z, cr=0.8):
     return tf.nn.embedding_lookup(table, z)
 
 
-def dense_sequence_to_sparse(sequences, sequence_lengths):
+def dense_sequence_to_sparse(seq, len_seq):
     '''convert sequence dense representations to sparse representations
     Args:
-        sequences: the dense sequences as a [batch_size x max_length] tensor
-        sequence_lengths: the sequence lengths as a [batch_size] vector
+        seq: the dense seq as a [batch_size x max_length] tensor
+        len_seq: the sequence lengths as a [batch_size] vector
     Returns:
-        the sparse tensor representation of the sequences
+        the sparse tensor representation of the seq
 
     the reverse op:
         tf.sparse_tensor_to_dense(sp_input, default_value=0, validate_indices=True, name=None)
@@ -119,12 +119,12 @@ def dense_sequence_to_sparse(sequences, sequence_lengths):
             default_value=0)
     '''
     with tf.name_scope('dense_sequence_to_sparse'):
-        #get all the non padding sequences
-        indices = tf.cast(get_indices(sequence_lengths), tf.int64)
+        #get all the non padding seq
+        indices = tf.cast(get_indices(len_seq), tf.int64)
         #create the values
-        values = tf.gather_nd(sequences, indices)
+        values = tf.gather_nd(seq, indices)
         #the shape
-        shape = tf.cast(tf.shape(sequences), tf.int64)
+        shape = tf.cast(tf.shape(seq), tf.int64)
         sparse = tf.SparseTensor(indices, values, shape)
 
     return sparse
@@ -161,21 +161,34 @@ def right_shift_rows(p, shift, pad):
     return tf.concat([tf.fill(dims=[tf.shape(p)[0], 1], value=pad), p[:, :-shift]], axis=1)
 
 
-def get_indices(sequence_length):
+def sparse_shrink(sparse, pad=0):
+    dense = tf.sparse_tensor_to_dense(sparse, default_value=-1)
+    mask = (dense>=0)
+    len_seq = tf.reduce_sum(tf.to_int32(mask), -1)
+    indices = get_indices(len_seq)
+    values = sparse.values
+    shape = [sparse.dense_shape[0], tf.to_int64(tf.reduce_max(len_seq))]
+    sparse_shrinked = tf.SparseTensor(indices, values, shape)
+    seq = tf.sparse_tensor_to_dense(sparse_shrinked, default_value=pad)
+
+    return seq, len_seq, sparse_shrinked
+
+
+def get_indices(len_seq):
     '''get the indices corresponding to sequences (and not padding)
     Args:
-        sequence_length: the sequence_lengths as a N-D tensor
+        len_seq: the len_seqs as a N-D tensor
     Returns:
-        A [sum(sequence_length) x N-1] Tensor containing the indices'''
+        A [sum(len_seq) x N-1] Tensor containing the indices'''
 
     with tf.name_scope('get_indices'):
 
-        numdims = len(sequence_length.shape)
+        numdims = len(len_seq.shape)
 
         #get the maximal length
-        max_length = tf.reduce_max(sequence_length)
+        max_length = tf.reduce_max(len_seq)
 
-        sizes = tf.shape(sequence_length)
+        sizes = tf.shape(len_seq)
 
         range_tensor = tf.range(max_length)
         for i in range(1, numdims):
@@ -183,6 +196,6 @@ def get_indices(sequence_length):
             range_tensor = tf.tile(tf.expand_dims(range_tensor, i), tile_dims)
 
         indices = tf.where(tf.less(range_tensor,
-                                   tf.expand_dims(sequence_length, numdims)))
+                                   tf.expand_dims(len_seq, numdims)))
 
     return indices

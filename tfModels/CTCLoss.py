@@ -1,3 +1,9 @@
+"""
+not recommand to use in the practical productionself. Two reasons:
+the default blank id is 0, and the popular blank id is the last one of the output
+More optional features is accessable at hand at tf API.
+"""
+
 import tensorflow as tf
 
 from tfModels.math_tf import sum_log
@@ -177,6 +183,31 @@ def testCost():
         sess.run(tf.global_variables_initializer())
 
         print(sess.run(loss))
+
+
+def ctc_sample(logits, softmax_temperature=None):
+    """
+    return:
+        aligns: time x size
+        or
+        batch_aligns: batch x time x size
+    """
+    if softmax_temperature:
+        logits /= softmax_temperature
+    sampled = tf.distributions.Categorical(logits=logits).sample()
+
+    return sampled
+
+
+def ctc_reduce_map(ctc_sampled, id_blank):
+    """
+    simple version: only remove blank
+    """
+    indices = tf.where(ctc_sampled<id_blank)
+    values = tf.gather_nd(ctc_sampled, indices)
+    shape = tf.to_int64(tf.shape(ctc_sampled))
+
+    return tf.SparseTensor(indices, values, shape)
 
 
 if __name__ == '__main__':

@@ -60,6 +60,7 @@ def lr_decay_with_warmup(global_step, warmup_steps, hidden_units):
 
 
 def warmup_exponential_decay(global_step, warmup_steps, peak, decay_rate, decay_steps):
+    print('warmup_steps', warmup_steps, 'peak', peak, 'decay_rate', decay_rate, 'decay_steps', decay_steps)
     warmup_steps = tf.to_float(warmup_steps)
     global_step = tf.to_float(global_step)
     # return peak * global_step / warmup_steps

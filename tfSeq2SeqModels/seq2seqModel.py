@@ -62,7 +62,7 @@ class Seq2SeqModel(LSTM_Model):
                 type=self.helper_type,
                 labels=decoder_input.input_labels,
                 len_labels=decoder_input.len_labels,
-                batch_size=tf.size(len_encoded))
+                batch_size=tf.shape(len_encoded)[0])
 
             logits, sample_id, _ = decoder(encoded, len_encoded)
 
