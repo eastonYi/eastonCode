@@ -7,7 +7,7 @@ from tensorflow.contrib.layers import fully_connected
 from tfModels.tools import choose_device
 from tfModels.ctcModel import CTCModel
 from tfModels.CTCLoss import ctc_sample, ctc_reduce_map
-from tfTools.tfTools import dense_sequence_to_sparse, sparse_shrink
+from tfTools.tfTools import dense_sequence_to_sparse, sparse_shrink, pad_to_same
 from tfTools.gradientTools import average_gradients, handle_gradients
 
 logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format='%(levelname)s(%(filename)s:%(lineno)d): %(message)s')
@@ -84,29 +84,31 @@ class CTC_PolicyModel(CTCModel):
                     len_seq=tensors_input.len_label_splits[id_gpu])
 
                 decoded_sparse = self.ctc_decode(logits, len_logits)
-                decoded_id = tf.sparse_tensor_to_dense(decoded_sparse, default_value=0)
                 wer_bias = tf.edit_distance(decoded_sparse, label_sparse, normalize=True)
                 wer_bias = tf.stop_gradient(wer_bias)
+                decoded_id = tf.sparse_tensor_to_dense(decoded_sparse, default_value=0)
 
-                sampled = ctc_sample(logits, self.args.model.softmax_temperature)
-                sample_sparse = ctc_reduce_map(sampled, id_blank=num_class-1)
+                sampled_align = ctc_sample(logits, self.args.model.softmax_temperature)
+                sample_sparse = ctc_reduce_map(sampled_align, id_blank=num_class-1)
                 wer = tf.edit_distance(sample_sparse, label_sparse, normalize=True)
                 seq_sample, len_sample, _ = sparse_shrink(sample_sparse)
-                # logits = tf.Print(logits, [tf.shape(logits), tf.shape(seq_sample)], message='logits, seq_sample: ', summarize=1000)
+
+                ## the sampled could be zero which cannot be the label in ctc_loss
+                ## we switch the zero ones with the true label
+                seq_sample, label = pad_to_same([seq_sample, tensors_input.label_splits[id_gpu]])
+                len_label = tensors_input.len_label_splits[id_gpu]
+                seq_sample = tf.where(len_sample<1, label, seq_sample)
+                len_sample = tf.where(len_sample<1, len_label, len_sample)
 
                 max_wer = tf.convert_to_tensor(self.args.model.max_wer)
-                min_reward = tf.convert_to_tensor(self.args.model.min_reward)
                 reward = wer_bias - wer
-                max_wer = tf.convert_to_tensor(self.args.model.max_wer)
-                min_reward = tf.convert_to_tensor(self.args.model.min_reward)
                 reward = tf.where(wer < max_wer, reward, tf.zeros_like(reward))
-                reward = tf.where(reward > min_reward, reward, tf.zeros_like(reward))
 
                 loss, batch_loss = self.policy_ctc_loss(
                     logits=logits,
                     len_logits=len_logits,
-                    labels=seq_sample,
-                    len_labels=len_sample,
+                    flabels=seq_sample,
+                    len_flabels=len_sample,
                     batch_reward=reward)
 
                 with tf.name_scope("gradients"):
@@ -120,19 +122,3 @@ class CTC_PolicyModel(CTCModel):
             return loss, gradients, [decoded_id, seq_sample], [wer_bias, wer], batch_loss
         else:
             return logits, len_logits
-
-    def policy_ctc_loss(self, logits, len_logits, labels, len_labels, batch_reward):
-        with tf.name_scope("ctc_loss"):
-            labels_sparse = dense_sequence_to_sparse(
-                labels,
-                len_labels)
-            ctc_loss_batch = tf.nn.ctc_loss(
-                labels_sparse,
-                logits,
-                sequence_length=len_logits,
-                ignore_longer_outputs_than_inputs=True,
-                time_major=False)
-            ctc_loss_batch *= batch_reward
-            loss = tf.reduce_mean(ctc_loss_batch) # utter-level ctc loss
-
-        return loss, ctc_loss_batch

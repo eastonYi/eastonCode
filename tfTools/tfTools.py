@@ -155,6 +155,34 @@ def batch_pad(p, length, pad, direct='head'):
     return res
 
 
+def batch_pad_to(p, length, pad):
+    """
+    expend the 2d tensor to assinment length
+    """
+    length_p = tf.shape(p)[1]
+    pad_length = tf.reduce_max([length_p, length])-length_p
+
+    pad = tf.cast(tf.fill(dims=[tf.shape(p)[0], pad_length], value=pad), dtype=p.dtype)
+    res = tf.concat([p, pad], axis=1)
+
+    return res
+
+
+def pad_to_same(list_tensors):
+    """
+    pad all the tensors to the same length , given the length info.
+    """
+    list_lens = []
+    for tensor in list_tensors:
+        list_lens.append(tf.shape(tensor)[1])
+    len_max = tf.reduce_max(tf.stack(list_lens, 0))
+    list_padded = []
+    for tensor in list_tensors:
+        list_padded.append(batch_pad_to(tensor, len_max, 0))
+
+    return list_padded
+
+
 def right_shift_rows(p, shift, pad):
     assert type(shift) is int
 
@@ -162,6 +190,15 @@ def right_shift_rows(p, shift, pad):
 
 
 def sparse_shrink(sparse, pad=0):
+    """
+    sparsTensor to shrinked dense tensor:
+    from:
+     [[x 1 x x 3],
+      [2 x x 5 4]]
+    to:
+     [[1 3 0],
+      [2 5 4]]
+    """
     dense = tf.sparse_tensor_to_dense(sparse, default_value=-1)
     mask = (dense>=0)
     len_seq = tf.reduce_sum(tf.to_int32(mask), -1)

@@ -1,6 +1,5 @@
 import tensorflow as tf
 
-
 def sum_log(*args):
     """
     Stable log sum exp.
@@ -29,7 +28,7 @@ def testSum_log():
         print(results)
         print(ground_truth)
         assert np.allclose(results, ground_truth)
-        
+
 
 if __name__ == '__main__':
     testSum_log()

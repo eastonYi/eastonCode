@@ -22,7 +22,8 @@ class CTCModel(LSTM_Model):
     def build_single_graph(self, id_gpu, name_gpu, tensors_input):
         num_class = self.args.dim_output + 1
         Encoder = self.args.model.encoder.type
-
+        tf.get_variable_scope().set_initializer(tf.variance_scaling_initializer(
+            1.0, mode="fan_avg", distribution="uniform"))
         with tf.device(lambda op: choose_device(op, name_gpu, self.center_device)):
             # create encoder obj
             encoder = Encoder(
@@ -61,16 +62,30 @@ class CTCModel(LSTM_Model):
         activations for the targets are zero.
         """
         with tf.name_scope("ctc_loss"):
-            labels_sparse = dense_sequence_to_sparse(
-                labels,
-                len_labels)
-            ctc_loss_batch = tf.nn.ctc_loss(
-                labels_sparse,
-                logits,
-                sequence_length=len_logits,
-                ctc_merge_repeated=self.merge_repeated,
-                ignore_longer_outputs_than_inputs=True,
-                time_major=False)
+            if self.args.model.use_wrapctc:
+                import warpctc_tensorflow
+                from tfTools.tfTools import get_indices
+
+                indices = get_indices(len_labels)
+                flat_labels = tf.gather_nd(labels, indices)
+                ctc_loss_batch = warpctc_tensorflow.ctc(
+                    activations=tf.transpose(logits, [1, 0, 2]),
+                    flat_labels=flat_labels,
+                    label_lengths=len_labels,
+                    input_lengths=len_logits,
+                    blank_label=self.args.dim_output)
+            else:
+                # with tf.get_default_graph()._kernel_label_map({"CTCLoss": "WarpCTC"}):
+                labels_sparse = dense_sequence_to_sparse(
+                    labels,
+                    len_labels)
+                ctc_loss_batch = tf.nn.ctc_loss(
+                    labels_sparse,
+                    logits,
+                    sequence_length=len_logits,
+                    ctc_merge_repeated=self.merge_repeated,
+                    ignore_longer_outputs_than_inputs=True,
+                    time_major=False)
             loss = tf.reduce_mean(ctc_loss_batch) # utter-level ctc loss
 
         if self.args.model.confidence_penalty:
@@ -83,6 +98,37 @@ class CTCModel(LSTM_Model):
                 neg_entropy = tf.reduce_sum(real_probs * tf.log(real_probs), axis=-1)
                 ls_loss = self.args.model.confidence_penalty * tf.reduce_sum(neg_entropy, axis=-1)
             loss += ls_loss
+
+        if self.args.model.policy_learning:
+            from tfModels.CTCLoss import ctc_sample, ctc_reduce_map
+            from tfTools.tfTools import sparse_shrink, pad_to_same
+            num_class = self.args.dim_output + 1
+            print('using policy learning')
+            with tf.name_scope("policy_learning"):
+                label_sparse = dense_sequence_to_sparse(labels, len_labels)
+                decoded_sparse = self.ctc_decode(logits, len_logits)
+                wer_bias = tf.edit_distance(decoded_sparse, label_sparse, normalize=True)
+                wer_bias = tf.stop_gradient(wer_bias)
+
+                sampled_align = ctc_sample(logits, self.args.model.softmax_temperature)
+                sample_sparse = ctc_reduce_map(sampled_align, id_blank=num_class-1)
+                wer = tf.edit_distance(sample_sparse, label_sparse, normalize=True)
+                seq_sample, len_sample, _ = sparse_shrink(sample_sparse)
+
+                # ==0 is not success!!
+                seq_sample, labels = pad_to_same([seq_sample, labels])
+                seq_sample = tf.where(len_sample<1, labels, seq_sample)
+                len_sample = tf.where(len_sample<1, len_labels, len_sample)
+
+                reward = wer_bias - wer
+
+                rl_loss, _ = self.policy_ctc_loss(
+                    logits=logits,
+                    len_logits=len_logits,
+                    flabels=seq_sample,
+                    len_flabels=len_sample,
+                    batch_reward=reward)
+            loss += self.args.model.policy_learning * rl_loss
 
         return loss
 
@@ -124,3 +170,38 @@ class CTCModel(LSTM_Model):
                 merge_repeated=self.merge_repeated)[0][0])
 
         return decoded_sparse
+
+    def policy_ctc_loss(self, logits, len_logits, flabels, len_flabels, batch_reward):
+        """
+        flabels: not the ground-truth
+        """
+        with tf.name_scope("policy_ctc_loss"):
+            flabels_sparse = dense_sequence_to_sparse(
+                flabels,
+                len_flabels)
+            ctc_loss_batch = tf.nn.ctc_loss(
+                flabels_sparse,
+                logits,
+                sequence_length=len_logits,
+                ignore_longer_outputs_than_inputs=True,
+                time_major=False)
+            ctc_loss_batch *= batch_reward
+            ctc_loss_batch = self.non_linear(ctc_loss_batch)
+            loss = tf.reduce_mean(ctc_loss_batch) # utter-level ctc loss
+
+        return loss, ctc_loss_batch
+
+    def non_linear(self, x):
+        non_linear = self.args.model.non_linear
+        if non_linear == 'exponential':
+            y = tf.exp(x)-1
+        elif non_linear == 'prelu':
+            y = tf.where(x>0, 2*x, 0.5*x)
+        elif non_linear == 'relu':
+            y = tf.nn.relu(x)
+        elif non_linear == 'm-relu':
+            min_reward = tf.ones_like(x) * self.args.model.min_reward
+            y = tf.where(x>min_reward, x, min_reward)
+        else:
+            y = x
+        return y

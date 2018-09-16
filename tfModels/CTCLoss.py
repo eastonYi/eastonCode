@@ -194,18 +194,18 @@ def ctc_sample(logits, softmax_temperature=None):
     """
     if softmax_temperature:
         logits /= softmax_temperature
-    sampled = tf.distributions.Categorical(logits=logits).sample()
+    sampled_align = tf.distributions.Categorical(logits=logits).sample()
 
-    return sampled
+    return sampled_align
 
 
-def ctc_reduce_map(ctc_sampled, id_blank):
+def ctc_reduce_map(ctc_alignment, id_blank):
     """
     simple version: only remove blank
     """
-    indices = tf.where(ctc_sampled<id_blank)
-    values = tf.gather_nd(ctc_sampled, indices)
-    shape = tf.to_int64(tf.shape(ctc_sampled))
+    indices = tf.where(ctc_alignment<id_blank)
+    values = tf.gather_nd(ctc_alignment, indices)
+    shape = tf.to_int64(tf.shape(ctc_alignment))
 
     return tf.SparseTensor(indices, values, shape)
 

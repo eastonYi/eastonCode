@@ -217,6 +217,8 @@ class LSTM_Model(object):
                 self.global_step,
                 warmup_steps=self.args.warmup_steps,
                 hidden_units=self.args.model.encoder.num_cell_units)
+        elif self.args.constant_learning_rate:
+            self.learning_rate = tf.convert_to_tensor(self.args.constant_learning_rate)
         else:
             self.learning_rate = warmup_exponential_decay(
                 self.global_step,

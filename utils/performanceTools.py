@@ -52,7 +52,7 @@ def dev(step, dataloader, model, sess, unit, idx2token, eosid_res, eosid_ref):
     used_time = time() - start_time
     cer = total_cer_dist/total_cer_len
     wer = total_wer_dist/total_wer_len
-    logging.info('=====dev info, total used time {:.2f}h==== \nWER: {:.3f}\ntotal_wer_len: {}'.format(used_time/3600, wer, total_wer_len))
+    logging.info('=====dev info, total used time {:.2f}h==== \nWER: {:.4f}\ntotal_wer_len: {}'.format(used_time/3600, wer, total_wer_len))
 
     return cer, wer
 
@@ -66,5 +66,5 @@ def decode_test(step, sample, model, sess, unit, idx2token, eosid_res, eosid_ref
     res_txt = array2text(sampled_id[0], unit, idx2token, eosid_res)
     ref_txt = array2text(sample['label'], unit, idx2token, eosid_ref)
 
-    logging.info('length: {}, res: \n{}\nref:\n{}'.format(
+    logging.info('length: {}, res: \n{}\nref: \n{}'.format(
                  shape_sample[1], res_txt, ref_txt))

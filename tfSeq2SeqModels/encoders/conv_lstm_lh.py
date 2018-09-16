@@ -28,6 +28,7 @@ class CONV_LSTM(Encoder):
             - [batch_size] tensor
         '''
         num_cell_units = self.args.model.encoder.num_cell_units
+        dropout = self.args.model.encoder.dropout
         size_feat = self.args.data.dim_input
 
         # x = tf.expand_dims(features, -1)
@@ -62,7 +63,7 @@ class CONV_LSTM(Encoder):
                 num_cell_units,
                 num_projs=None,
                 add_residual=False,
-                dropout=0.0)
+                dropout=dropout)
             x, _ = tf.nn.bidirectional_dynamic_rnn(
               cell_fw=fwd_lstm_cell,
               cell_bw=bwd_lstm_cell,
@@ -81,43 +82,15 @@ class CONV_LSTM(Encoder):
                 'True',
                 name="tdnn",
                 norm_type='layer')
-            x = normal_pooling(x, (2, 1), (2, 1), 'SAME')
+            x = normal_pooling(x, (1, 1), (1, 1), 'SAME')
             x = tf.squeeze(x, axis=2)
-            len_sequence = tf.cast(tf.ceil(tf.cast(len_sequence, tf.float32)/2), tf.int32)
 
         with tf.variable_scope('lstm_2'):
             fwd_lstm_cell, bwd_lstm_cell = blstm_cell(
                 num_cell_units,
                 num_projs=None,
                 add_residual=False,
-                dropout=0.0)
-            x, _ = tf.nn.bidirectional_dynamic_rnn(
-              cell_fw=fwd_lstm_cell,
-              cell_bw=bwd_lstm_cell,
-              inputs=x,
-              dtype=tf.float32,
-              time_major=False,
-              sequence_length=len_sequence)
-            x = tf.concat(x, 2)
-            x = tf.expand_dims(x, axis=2)
-            x = normal_conv(
-                x,
-                num_cell_units,
-                (1, 1),
-                (1, 1),
-                'SAME',
-                'True',
-                name="tdnn",
-                norm_type='layer')
-            x = normal_pooling(x, (1, 1), (1, 1), 'SAME')
-            x = tf.squeeze(x, axis=2)
-
-        with tf.variable_scope('lstm_3'):
-            fwd_lstm_cell, bwd_lstm_cell = blstm_cell(
-                num_cell_units,
-                num_projs=None,
-                add_residual=False,
-                dropout=0.0)
+                dropout=dropout)
             x, _ = tf.nn.bidirectional_dynamic_rnn(
               cell_fw=fwd_lstm_cell,
               cell_bw=bwd_lstm_cell,
@@ -140,12 +113,12 @@ class CONV_LSTM(Encoder):
             x = tf.squeeze(x, axis=2)
             len_sequence = tf.cast(tf.ceil(tf.cast(len_sequence, tf.float32)/2), tf.int32)
 
-        with tf.variable_scope('lstm_4'):
+        with tf.variable_scope('lstm_3'):
             fwd_lstm_cell, bwd_lstm_cell = blstm_cell(
                 num_cell_units,
                 num_projs=None,
                 add_residual=False,
-                dropout=0.0)
+                dropout=dropout)
             x, _ = tf.nn.bidirectional_dynamic_rnn(
               cell_fw=fwd_lstm_cell,
               cell_bw=bwd_lstm_cell,
@@ -166,6 +139,34 @@ class CONV_LSTM(Encoder):
                 norm_type='layer')
             x = normal_pooling(x, (1, 1), (1, 1), 'SAME')
             x = tf.squeeze(x, axis=2)
+
+        with tf.variable_scope('lstm_4'):
+            fwd_lstm_cell, bwd_lstm_cell = blstm_cell(
+                num_cell_units,
+                num_projs=None,
+                add_residual=False,
+                dropout=dropout)
+            x, _ = tf.nn.bidirectional_dynamic_rnn(
+              cell_fw=fwd_lstm_cell,
+              cell_bw=bwd_lstm_cell,
+              inputs=x,
+              dtype=tf.float32,
+              time_major=False,
+              sequence_length=len_sequence)
+            x = tf.concat(x, 2)
+            x = tf.expand_dims(x, axis=2)
+            x = normal_conv(
+                x,
+                num_cell_units,
+                (1, 1),
+                (1, 1),
+                'SAME',
+                'True',
+                name="tdnn",
+                norm_type='layer')
+            x = normal_pooling(x, (2, 1), (2, 1), 'SAME')
+            x = tf.squeeze(x, axis=2)
+            len_sequence = tf.cast(tf.ceil(tf.cast(len_sequence, tf.float32)/2), tf.int32)
 
         outputs = x
         output_seq_lengths = len_sequence
