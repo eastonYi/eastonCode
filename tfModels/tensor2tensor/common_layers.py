@@ -267,7 +267,8 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
   # Manually setting the shape to be unknown in the middle two dimensions so
   # that the `tf.cond` below won't throw an error based on the convolution
   # kernels being too large for the data.
-  inputs._shape = tf.TensorShape([static_shape[0], None, None, static_shape[3]])  # pylint: disable=protected-access
+  # inputs._shape = tf.TensorShape([static_shape[0], None, None, static_shape[3]])  # pylint: disable=protected-access
+  inputs.set_shape([static_shape[0], None, None, static_shape[3]]) 
   if kernel_size[1] == 1 or force2d:
     # Avoiding the cond below can speed up graph and gradient construction.
     return conv2d_kernel(kernel_size, "single")

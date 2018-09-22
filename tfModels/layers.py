@@ -1,5 +1,6 @@
 import logging
 import tensorflow as tf
+from tfModels.tensor2tensor.common_layers import conv_lstm, layer_norm
 from tensorflow.contrib.rnn import BasicLSTMCell, GRUCell, LayerNormBasicLSTMCell, DropoutWrapper, ResidualWrapper, MultiRNNCell, OutputProjectionWrapper
 
 
@@ -44,9 +45,8 @@ def dense(inputs,
             return activation(arg1, arg2)
 
 
-def residual(inputs, outputs, dropout_rate, index_layer):
+def residual(inputs, outputs, dropout_rate):
     """Residual connection.
-
     Args:
         inputs: A Tensor.
         outputs: A Tensor.
@@ -56,20 +56,7 @@ def residual(inputs, outputs, dropout_rate, index_layer):
         A Tensor.
     """
     outputs = inputs + tf.nn.dropout(outputs, 1 - dropout_rate)
-    outputs = layer_normalize(outputs, index_layer)
-    return outputs
-
-
-def layer_normalize(inputs, index_layer, epsilon=1e-8):
-    with tf.variable_scope("layer_norm"):
-        inputs_shape = inputs.get_shape()
-        params_shape = inputs_shape[-1:]
-
-        mean, variance = tf.nn.moments(inputs, [-1], keep_dims=True)
-        beta = tf.get_variable("beta_"+str(index_layer), params_shape, dtype=tf.float32)
-        gamma = tf.get_variable("gamma_"+str(index_layer), params_shape, dtype=tf.float32)
-        normalized = (inputs - mean) / ((variance + epsilon) ** 0.5)
-        outputs = gamma * normalized + beta
+    outputs = layer_norm(outputs)
 
     return outputs
 
@@ -93,15 +80,21 @@ def single_cell(num_units, is_train, cell_type,
 
     # Cell Type
     if cell_type == "lstm":
-        single_cell = BasicLSTMCell(num_units, forget_bias=forget_bias)
+        single_cell = tf.contrib.rnn.LSTMCell(
+            num_units,
+            use_peepholes=True,
+            num_proj=dim_project,
+            cell_clip=50.0,
+            forget_bias=1.0)
     elif cell_type == "cudnn_lstm":
         single_cell = tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(num_units)
     elif cell_type == "gru":
         single_cell = GRUCell(num_units)
     elif cell_type == "layer_norm_lstm":
-        single_cell = LayerNormBasicLSTMCell(num_units,
-                                             forget_bias=forget_bias,
-                                             layer_norm=True)
+        single_cell = LayerNormBasicLSTMCell(
+            num_units,
+            forget_bias=forget_bias,
+            layer_norm=True)
     else:
         raise ValueError("Unknown unit type %s!" % cell_type)
 
@@ -139,12 +132,38 @@ def cell_forward(cell, inputs, index_layer=0, initial_state=None):
     # the variable created in `tf.nn.dynamic_rnn`, not in cell
     with tf.variable_scope("lstm"):
         # print('index_layer: ', index_layer, 'inputs.get_shape(): ', inputs.get_shape())
-        lstm_output, state = tf.nn.dynamic_rnn(cell,
-                                               inputs,
-                                               initial_state=initial_state,
-                                               scope='cell_'+str(index_layer),
-                                               dtype=tf.float32)
+        lstm_output, state = tf.nn.dynamic_rnn(
+            cell,
+            inputs,
+             initial_state=initial_state,
+             scope='cell_'+str(index_layer),
+             dtype=tf.float32)
     return lstm_output, state
+
+
+def blstm(hidden_output, len_feas, num_cell_units,  num_layers, is_train, name,
+          num_cell_project=None, cell_type='cudnn_lstm', dropout=0.0, use_residual=False, use_layernorm=False):
+    with tf.variable_scope(name):
+        for i in range(num_layers):
+            # build one layer: build block, connect block
+            single_cell = build_cell(
+                num_units=num_cell_units,
+                num_layers=1,
+                is_train=is_train,
+                cell_type=cell_type,
+                dropout=dropout,
+                forget_bias=0.0,
+                use_residual=use_residual,
+                dim_project=num_cell_project)
+            hidden_output, _ = cell_forward(
+                cell=single_cell,
+                inputs=hidden_output,
+                index_layer=i)
+
+            if use_layernorm:
+                hidden_output = layer_norm(hidden_output)
+
+    return hidden_output, len_feas
 
 
 def conv_layer(inputs, len_sequence, size_feat, num_filter, kernel, stride,
@@ -189,7 +208,7 @@ def normal_conv(inputs, filter_num, kernel, stride, padding, use_relu, name,
       net = net
     output = tf.nn.relu(net) if use_relu else net
     return output
-    
+
 
 def conv_lstm(inputs, len_sequence, kernel_size, filters,
               padding="SAME", dilation_rate=(1, 1), name='conv_lstm'):

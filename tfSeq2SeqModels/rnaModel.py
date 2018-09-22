@@ -15,7 +15,8 @@ class RNAModel(Seq2SeqModel):
                      batch, None, embed_table_decoder, name)
 
     def build_single_graph(self, id_gpu, name_gpu, tensors_input):
-
+        tf.get_variable_scope().set_initializer(tf.variance_scaling_initializer(
+            1.0, mode="fan_avg", distribution="uniform"))
         with tf.device(lambda op: choose_device(op, name_gpu, self.center_device)):
             encoder = self.gen_encoder(
                 is_train=self.is_train,
@@ -42,7 +43,9 @@ class RNAModel(Seq2SeqModel):
                     logits=logits,
                     len_logits=len_encoded,
                     labels=tensors_input.label_splits[id_gpu],
-                    len_labels=tensors_input.len_label_splits[id_gpu])
+                    len_labels=tensors_input.len_label_splits[id_gpu],
+                    encoded=encoded,
+                    len_encoded=len_encoded)
 
                 with tf.name_scope("gradients"):
                     gradients = self.optimizer.compute_gradients(loss)
@@ -67,20 +70,20 @@ class RNAModel(Seq2SeqModel):
             # sample_id
             if sample_id.get_shape().ndims == 3:
                 sample_id = sample_id[:,:,0]
-
             # ctc decode
             decoded_sparse = self.rna_decode(logits, len_logits)
             decoded = tf.sparse_to_dense(
                 sparse_indices=decoded_sparse.indices,
                 output_shape=decoded_sparse.dense_shape,
                 sparse_values=decoded_sparse.values,
-                default_value=-1,
+                default_value=0,
                 validate_indices=True)
             distribution = tf.nn.softmax(logits)
 
         return decoded, tensors_input.shape_batch, distribution
+        # return decoded, sample_id, decoded_sparse
 
-    def rna_loss(self, logits, len_logits, labels, len_labels):
+    def rna_loss(self, logits, len_logits, labels, len_labels, encoded=None, len_encoded=None):
         with tf.name_scope("rna_loss"):
             labels_sparse = dense_sequence_to_sparse(
                 labels,
@@ -93,6 +96,21 @@ class RNAModel(Seq2SeqModel):
                 ignore_longer_outputs_than_inputs=True,
                 time_major=False)
             loss = tf.reduce_mean(ctc_loss_batch) # utter-level ctc loss
+
+        if self.args.model.confidence_penalty:
+            print('using confidence penalty')
+            with tf.name_scope("confidence_penalty"):
+                real_probs = tf.nn.softmax(logits)
+                prevent_nan_constant = tf.constant(1e-10)
+                real_probs += prevent_nan_constant
+
+                neg_entropy = tf.reduce_sum(real_probs * tf.log(real_probs), axis=-1)
+                ls_loss = self.args.model.confidence_penalty * tf.reduce_sum(neg_entropy, axis=-1)
+            loss += ls_loss
+
+        if self.args.model.policy_learning:
+            rl_loss = self.policy_learning(logits, len_logits, labels, len_labels, encoded, len_encoded)
+            loss += self.args.model.policy_learning * rl_loss
 
         return loss
 
@@ -113,3 +131,56 @@ class RNAModel(Seq2SeqModel):
                 merge_repeated=False)[0][0])
 
         return decoded_sparse
+
+    def policy_learning(self, logits, len_logits, labels, len_labels, encoded, len_encoded):
+        assert (encoded is not None) and (len_encoded is not None)
+        from tfModels.ctcModel import CTCModel
+        from tfTools.tfTools import pad_to_same
+
+        # with tf.variable_scope('policy_learning'):
+        with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+            decoder_sample = self.gen_decoder(
+                is_train=False,
+                embed_table=self.embed_table_decoder,
+                global_step=self.global_step,
+                args=self.args)
+            decoder_sample.build_helper(
+                type=self.args.model.decoder.sampleHelper,
+                encoded=encoded,
+                len_encoded=len_encoded)
+
+            logits_sample, sample_id_sample, _ = decoder_sample(encoded, len_encoded)
+
+        label_sparse = dense_sequence_to_sparse(labels, len_labels)
+
+        # bias(gready) decode
+        decoded_sparse = self.rna_decode(logits, len_logits)
+        wer_bias = tf.edit_distance(decoded_sparse, label_sparse, normalize=True)
+        wer_bias = tf.stop_gradient(wer_bias)
+
+        # sample decode
+        sample_sparse = self.rna_decode(logits_sample, len_logits)
+        wer = tf.edit_distance(sample_sparse, label_sparse, normalize=True)
+        sample = tf.sparse_to_dense(
+            sparse_indices=sample_sparse.indices,
+            output_shape=sample_sparse.dense_shape,
+            sparse_values=sample_sparse.values,
+            default_value=0,
+            validate_indices=True)
+        len_sample = tf.count_nonzero(sample, -1, dtype=tf.int32)
+        # wer_bias = tf.Print(wer_bias, [len_sample], message='len_sample', summarize=1000)
+        seq_sample, labels = pad_to_same([sample, labels])
+        seq_sample = tf.where(len_sample<1, labels, seq_sample)
+        len_sample = tf.where(len_sample<1, len_labels, len_sample)
+
+        reward = wer_bias - wer
+
+        rl_loss, _ = CTCModel.policy_ctc_loss(
+            logits=logits_sample,
+            len_logits=len_logits,
+            flabels=sample,
+            len_flabels=len_sample,
+            batch_reward=reward,
+            args=self.args)
+
+        return rl_loss

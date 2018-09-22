@@ -167,6 +167,14 @@ class Decoder(object):
                 embedding=self.embedding,
                 start_tokens=tf.fill([batch_size], self.start_token))
             self.beam_size = 1
+        elif type == 'RNASampleEmbeddingHelper':
+            helper = helpers.RNASampleEmbeddingHelper(
+                encoded=encoded,
+                len_encoded=len_encoded,
+                embedding=self.embedding,
+                start_tokens=tf.fill([batch_size], self.start_token),
+                softmax_temperature=self.args.model.decoder.softmax_temperature)
+            self.beam_size = 1
         else:
             raise NotImplementedError
 

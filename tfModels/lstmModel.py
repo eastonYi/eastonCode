@@ -6,7 +6,8 @@ from tensorflow.contrib.layers import fully_connected
 
 from tfTools.gradientTools import average_gradients, handle_gradients
 from tfModels.tools import warmup_exponential_decay, choose_device, lr_decay_with_warmup
-from tfModels.layers import layer_normalize, build_cell, cell_forward
+from tfModels.layers import build_cell, cell_forward
+from tfModels.tensor2tensor.common_layers import layer_norm
 
 
 class LSTM_Model(object):
@@ -181,7 +182,7 @@ class LSTM_Model(object):
                     activation_fn=tf.nn.tanh,
                     scope='wx_b'+str(i))
                 if self.args.model.use_layernorm:
-                    hidden_output = layer_normalize(hidden_output, i)
+                    hidden_output = layer_norm(hidden_output)
 
             logits = fully_connected(inputs=hidden_output,
                                      num_outputs=self.args.dim_output,

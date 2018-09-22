@@ -139,7 +139,7 @@ class ASR_scp_DataSet(ASRDataSet):
         id2trans = {}
         with open(f_trans) as f:
             for line in f:
-                line = line.strip().split(' ')
+                line = line.strip().split()
                 id = line[0]
                 trans = line[1:]
                 id2trans[id] = trans
@@ -198,7 +198,7 @@ class SimpleDataLoader:
 
     @staticmethod
     def padding_list_seqs(list_seqs, dtype=np.float32, pad=0.):
-        """
+        '''
         Pads each sequence to the same length of the longest sequence.
         If maxlen is provided, any sequence longer than maxlen is truncated to
         maxlen. Truncation happens.
@@ -216,7 +216,7 @@ class SimpleDataLoader:
             >> padding_list_seqs([[21, 11, 3], [31,1]])
             >> (array([[ 21.,  11.,   3.],
                 [ 31.,   1.,   0.]], dtype=float32), [3, 2])
-        """
+        '''
         len_x = [len(s) for s in list_seqs]
 
         size_batch = len(list_seqs)

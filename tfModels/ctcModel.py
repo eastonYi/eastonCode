@@ -127,7 +127,8 @@ class CTCModel(LSTM_Model):
                     len_logits=len_logits,
                     flabels=seq_sample,
                     len_flabels=len_sample,
-                    batch_reward=reward)
+                    batch_reward=reward,
+                    args=self.args)
             loss += self.args.model.policy_learning * rl_loss
 
         return loss
@@ -147,7 +148,7 @@ class CTCModel(LSTM_Model):
                 sparse_indices=decoded_sparse.indices,
                 output_shape=decoded_sparse.dense_shape,
                 sparse_values=decoded_sparse.values,
-                default_value=-1,
+                default_value=0,
                 validate_indices=True)
             distribution = tf.nn.softmax(logits)
 
@@ -171,14 +172,22 @@ class CTCModel(LSTM_Model):
 
         return decoded_sparse
 
-    def policy_ctc_loss(self, logits, len_logits, flabels, len_flabels, batch_reward):
+    @staticmethod
+    def policy_ctc_loss(logits, len_logits, flabels, len_flabels, batch_reward, args):
         """
         flabels: not the ground-truth
+        if len_flabels=None, means the `flabels` is sparse
         """
+        from tfTools.math_tf import non_linear
+
         with tf.name_scope("policy_ctc_loss"):
-            flabels_sparse = dense_sequence_to_sparse(
-                flabels,
-                len_flabels)
+            if len_flabels is not None:
+                flabels_sparse = dense_sequence_to_sparse(
+                    flabels,
+                    len_flabels)
+            else:
+                flabels_sparse = flabels
+
             ctc_loss_batch = tf.nn.ctc_loss(
                 flabels_sparse,
                 logits,
@@ -186,22 +195,10 @@ class CTCModel(LSTM_Model):
                 ignore_longer_outputs_than_inputs=True,
                 time_major=False)
             ctc_loss_batch *= batch_reward
-            ctc_loss_batch = self.non_linear(ctc_loss_batch)
+            ctc_loss_batch = non_linear(
+                ctc_loss_batch,
+                args.model.non_linear,
+                args.model.min_reward)
             loss = tf.reduce_mean(ctc_loss_batch) # utter-level ctc loss
 
         return loss, ctc_loss_batch
-
-    def non_linear(self, x):
-        non_linear = self.args.model.non_linear
-        if non_linear == 'exponential':
-            y = tf.exp(x)-1
-        elif non_linear == 'prelu':
-            y = tf.where(x>0, 2*x, 0.5*x)
-        elif non_linear == 'relu':
-            y = tf.nn.relu(x)
-        elif non_linear == 'm-relu':
-            min_reward = tf.ones_like(x) * self.args.model.min_reward
-            y = tf.where(x>min_reward, x, min_reward)
-        else:
-            y = x
-        return y

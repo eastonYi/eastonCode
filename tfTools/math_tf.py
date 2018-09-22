@@ -1,5 +1,21 @@
 import tensorflow as tf
 
+
+def non_linear(x, non_linear, min_reward=None):
+    if non_linear == 'exponential':
+        y = tf.exp(x)-1
+    elif non_linear == 'prelu':
+        y = tf.where(x>0, 2*x, 0.5*x)
+    elif non_linear == 'relu':
+        y = tf.nn.relu(x)
+    elif non_linear == 'm-relu':
+        min_reward = tf.ones_like(x) * min_reward
+        y = tf.where(x>min_reward, x, min_reward)
+    else:
+        y = x
+    return y
+
+
 def sum_log(*args):
     """
     Stable log sum exp.

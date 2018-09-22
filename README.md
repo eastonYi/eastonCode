@@ -11,7 +11,7 @@ the `arguments.py` load the general configs into an object `args`. We process so
 
 
 # Models
-## seq2seq Models
+## Seq2Seq Models
 it has the encoder folder and decoder folder
 
 
@@ -20,6 +20,10 @@ it uses the encoder folder
 
 ## RNA Model
 it has the encoder-decoder framwork but use the ctc loss.
+
+## Encoders
+- conv_lstm_lh
+if using blstm, the num_cell_units represent the sum of the two directions cell numbers. 
 
 # Projects
 the projects has

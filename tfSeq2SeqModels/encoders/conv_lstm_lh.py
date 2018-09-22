@@ -34,7 +34,8 @@ class CONV_LSTM(Encoder):
         # x = tf.expand_dims(features, -1)
         size_batch  = tf.shape(features)[0]
         size_length = tf.shape(features)[1]
-        x = tf.reshape(features, [size_batch, size_length, int(size_feat/3), 3])
+        size_feat = int(size_feat/3)
+        x = tf.reshape(features, [size_batch, size_length, size_feat, 3])
         # the first cnn layer
         x = normal_conv(
             inputs=x,
@@ -46,15 +47,16 @@ class CONV_LSTM(Encoder):
             name="conv",
             w_initializer=None,
             norm_type='layer')
+        len_sequence = tf.cast(tf.ceil(tf.cast(len_feas,tf.float32)/2), tf.int32)
         x = conv_lstm(
             x=x,
             kernel_size=(3,3),
             filters=64)
 
-        size_feat = int(np.ceil(40/2))*64
+        size_feat = int(np.ceil(size_feat/2))*64
         size_length  = tf.cast(tf.ceil(tf.cast(size_length,tf.float32)/2), tf.int32)
-        len_sequence = tf.cast(tf.ceil(tf.cast(len_feas,tf.float32)/2), tf.int32)
-        x.set_shape([None, None, size_feat, None])
+
+        # x.set_shape([None, None, size_feat, None])
         x = tf.reshape(x, [size_batch, size_length, size_feat])
 
         # the second blstm layer
@@ -82,7 +84,8 @@ class CONV_LSTM(Encoder):
                 'True',
                 name="tdnn",
                 norm_type='layer')
-            x = normal_pooling(x, (1, 1), (1, 1), 'SAME')
+            x = normal_pooling(x, (2, 1), (2, 1), 'SAME')
+            len_sequence = tf.cast(tf.ceil(tf.cast(len_sequence, tf.float32)/2), tf.int32)
             x = tf.squeeze(x, axis=2)
 
         with tf.variable_scope('lstm_2'):
@@ -109,9 +112,8 @@ class CONV_LSTM(Encoder):
                 'True',
                 name="tdnn",
                 norm_type='layer')
-            x = normal_pooling(x, (2, 1), (2, 1), 'SAME')
+            x = normal_pooling(x, (1, 1), (1, 1), 'SAME')
             x = tf.squeeze(x, axis=2)
-            len_sequence = tf.cast(tf.ceil(tf.cast(len_sequence, tf.float32)/2), tf.int32)
 
         with tf.variable_scope('lstm_3'):
             fwd_lstm_cell, bwd_lstm_cell = blstm_cell(
@@ -137,7 +139,8 @@ class CONV_LSTM(Encoder):
                 'True',
                 name="tdnn",
                 norm_type='layer')
-            x = normal_pooling(x, (1, 1), (1, 1), 'SAME')
+            x = normal_pooling(x, (2, 1), (2, 1), 'SAME')
+            len_sequence = tf.cast(tf.ceil(tf.cast(len_sequence, tf.float32)/2), tf.int32)
             x = tf.squeeze(x, axis=2)
 
         with tf.variable_scope('lstm_4'):
@@ -164,9 +167,8 @@ class CONV_LSTM(Encoder):
                 'True',
                 name="tdnn",
                 norm_type='layer')
-            x = normal_pooling(x, (2, 1), (2, 1), 'SAME')
+            x = normal_pooling(x, (1, 1), (1, 1), 'SAME')
             x = tf.squeeze(x, axis=2)
-            len_sequence = tf.cast(tf.ceil(tf.cast(len_sequence, tf.float32)/2), tf.int32)
 
         outputs = x
         output_seq_lengths = len_sequence

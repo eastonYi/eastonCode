@@ -104,6 +104,41 @@ class RNAGreedyEmbeddingHelper(GreedyEmbeddingHelper):
         return (finished, next_inputs, state)
 
 
+class RNASampleEmbeddingHelper(RNAGreedyEmbeddingHelper):
+    """
+    don't need the labels(and you can't give the label as you don't know the alignment)
+    so we can use the helper both in the training and infer phrases.
+    """
+
+    def __init__(self, encoded, len_encoded, embedding, start_tokens, softmax_temperature):
+        self._softmax_temperature = softmax_temperature
+        self._seed = None
+        super().__init__(encoded, len_encoded, embedding, start_tokens)
+
+    def sample(self, time, outputs, state, name=None):
+        """sample for GreedyEmbeddingHelper."""
+        del time, state  # unused by sample_fn
+        # Outputs are logits, use argmax to get the most probable id
+        if not isinstance(outputs, tf.Tensor):
+            raise TypeError("Expected outputs to be a single Tensor, got: %s" %
+                            type(outputs))
+
+        if self._softmax_temperature is None:
+            logits = outputs
+        else:
+            logits = outputs / self._softmax_temperature
+        sample_ids = tf.distributions.Categorical(logits=logits).sample(seed=self._seed)
+
+        # policy = tf.distributions.Bernoulli(probs=self._sampling_probability, dtype=tf.bool).\
+        #     sample(sample_shape=self.batch_size, seed=self._scheduling_seed)
+        # selected = tf.where(policy, sample_ids, sample_ids)
+        #
+        # sample_ids = tf.argmax(outputs, axis=-1, output_type=tf.int32)
+
+        return sample_ids
+
+
+
 # class ScheduledArgmaxEmbeddingTrainingHelper(TrainingHelper):
 #     def __init__(self, embedding, sampling_probability, start_tokens, end_token,
 #                  time_major=False, seed=None, scheduling_seed=None, softmax_temperature=None,

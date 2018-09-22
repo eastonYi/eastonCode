@@ -11,7 +11,8 @@
 import tensorflow as tf
 # from tensor2tensor.layers import common_layers
 # from tensor2tensor.utils import expert_utils as eu
-from tensorflow.python.ops import array_ops
+# from tensorflow.python.ops import array_ops
+from .common_layers import layer_norm
 
 # CNN
 def gated_conv(inputs, filter_num, kernel, stride, padding, name):
@@ -29,7 +30,13 @@ def normal_conv(inputs, filter_num, kernel, stride, padding, use_relu, name,
     if norm_type == "batch":
       net = tf.layers.batch_normalization(net, name="bn")
     elif norm_type == "layer":
-      net = tf.contrib.layers.layer_norm(net)
+      # if name == 'conv':
+      #   net = tf.Print(net, [net], message='net1: ', summarize=100)
+      # net = tf.contrib.layers.layer_norm(net)
+      # net = layer_normalize(net, name)
+      net = layer_norm(net)
+      # if name == 'conv':
+      #   net = tf.Print(net, [net], message='net2: ', summarize=100)
     else:
       net = net
     output = tf.nn.relu(net) if use_relu else net
@@ -63,8 +70,6 @@ def res_cnn(input, filter_num, kernel, stride, padding, name, dropout=0.0, norm_
       net = tf.nn.dropout(net, 1.0 - dropout)
     output= tf.nn.relu(net + residual)
     return output
-
-
 
 def normal_pooling(input, size, stride, padding):
   net = tf.layers.max_pooling2d(input, size, stride, padding)
@@ -199,15 +204,17 @@ def blstm_cell(num_cells, num_projs=None, add_residual=False, dropout=0.0):
   num_cells /= 2
   num_projs = num_projs / 2 if num_projs else num_projs
 
-  fwd_lstm_cell = tf.contrib.rnn.LSTMCell(num_cells, use_peepholes=True,
-                                          num_proj=num_projs, cell_clip=50.0,
-                                          forget_bias=1.0,
-                                          reuse=tf.get_variable_scope().reuse)
-
-  bwd_lstm_cell = tf.contrib.rnn.LSTMCell(num_cells, use_peepholes=True,
-                                          num_proj=num_projs, cell_clip=50.0,
-                                          forget_bias=1.0,
-                                          reuse=tf.get_variable_scope().reuse)
+  # fwd_lstm_cell = tf.contrib.rnn.LSTMCell(num_cells, use_peepholes=True,
+  #                                         num_proj=num_projs, cell_clip=50.0,
+  #                                         forget_bias=1.0,
+  #                                         reuse=tf.get_variable_scope().reuse)
+  #
+  # bwd_lstm_cell = tf.contrib.rnn.LSTMCell(num_cells, use_peepholes=True,
+  #                                         num_proj=num_projs, cell_clip=50.0,
+  #                                         forget_bias=1.0,
+  #                                         reuse=tf.get_variable_scope().reuse)
+  fwd_lstm_cell = tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(num_cells)
+  bwd_lstm_cell = tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(num_cells)
 
   if dropout > 0.0:
     fwd_lstm_cell = tf.contrib.rnn.DropoutWrapper(fwd_lstm_cell,
