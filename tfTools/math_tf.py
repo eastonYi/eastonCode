@@ -13,6 +13,7 @@ def non_linear(x, non_linear, min_reward=None):
         y = tf.where(x>min_reward, x, min_reward)
     else:
         y = x
+        
     return y
 
 

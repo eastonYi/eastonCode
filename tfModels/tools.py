@@ -29,8 +29,12 @@ def smoothing_cross_entropy(logits, labels, vocab_size, confidence):
         depth=vocab_size,
         on_value=confidence,
         off_value=low_confidence)
-    xentropy = tf.nn.softmax_cross_entropy_with_logits_v2(
-        logits=logits, labels=soft_targets)
+    try:
+        xentropy = tf.nn.softmax_cross_entropy_with_logits_v2(
+            logits=logits, labels=soft_targets)
+    except:
+        xentropy = tf.nn.softmax_cross_entropy_with_logits(
+            logits=logits, labels=soft_targets)
     return xentropy - normalizing
 
 #============================================================================

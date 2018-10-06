@@ -45,10 +45,11 @@ class DataSet:
 
 
 class ASRDataSet(DataSet):
-    def __init__(self, list_files, args, transform=True):
+    def __init__(self, list_files, args, shuffle, transform=True):
         self.list_files = list_files
         self.transform = transform
         self.args = args
+        self.shuffle = shuffle
         self.token2idx, self.idx2token = args.token2idx, args.idx2token
         self.end_id = self.gen_end_id(self.token2idx)
 
@@ -62,10 +63,11 @@ class ASRDataSet(DataSet):
 
 
 class ASR_csv_DataSet(ASRDataSet):
-    def __init__(self, list_files, args, transform=True):
-        super().__init__(list_files, args, transform)
+    def __init__(self, list_files, args, shuffle, transform=True):
+        super().__init__(list_files, args, shuffle, transform)
         self.list_utterances = self.gen_utter_list(list_files)
-        self.shuffle_list_files()
+        if shuffle:
+            self.shuffle_list_files()
 
     def __getitem__(self, idx):
         utterance = self.list_utterances[idx]
@@ -107,7 +109,7 @@ class ASR_scp_DataSet(ASRDataSet):
             f_id2label: the normalized transcripts
             f_vocab: the vocab of the transcripts
         """
-        from tfkaldi.processing.ark import ArkReader
+        from dataProcessing.ark import ArkReader
         self.list_files = [f_scp]
         super().__init__(self.list_files, args, transform)
         self.reader = ArkReader(f_scp)
@@ -115,6 +117,7 @@ class ASR_scp_DataSet(ASRDataSet):
 
     def __getitem__(self, idx):
         sample = {}
+
         try:
             sample['feature'] = self.reader.read_utt_data(idx)
             if self.transform:

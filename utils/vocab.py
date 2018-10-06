@@ -12,7 +12,7 @@ from collections import Counter, defaultdict
 
 
 def load_vocab(path, vocab_size=None):
-    vocab = [line.split('\n')[0] for line in codecs.open(path, 'r', 'utf-8')]
+    vocab = [line.split('\n')[0].split()[0] for line in codecs.open(path, 'r', 'utf-8')]
     vocab = vocab[:vocab_size] if vocab_size else vocab
     id_unk = vocab.index('<unk>')
     token2idx = defaultdict(lambda: id_unk)
@@ -23,8 +23,8 @@ def load_vocab(path, vocab_size=None):
         idx2token[token2idx['<space>']] = ' '
     if '<blk>' in vocab:
         idx2token[token2idx['<blk>']] = ''
-    if '<pad>' in vocab:
-        idx2token[token2idx['<pad>']] = ''
+    # if '<pad>' in vocab:
+    #     idx2token[token2idx['<pad>']] = ''
     if '<unk>' in vocab:
         idx2token[token2idx['<unk>']] = '<UNK>'
 

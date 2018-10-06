@@ -9,7 +9,7 @@ from itertools import repeat
 from .textTools import array_idx2char, unpadding, batch_wer, batch_cer, array2text
 
 
-def dev(step, dataloader, model, sess, unit, idx2token, eos_idx=None):
+def dev(step, dataloader, model, sess, unit, idx2token, eos_idx=None, min_idx=0, max_idx=None):
     start_time = time()
     batch_time = time()
     processed = 0
@@ -30,7 +30,9 @@ def dev(step, dataloader, model, sess, unit, idx2token, eos_idx=None):
         batch_cer_dist, batch_cer_len = batch_cer(
             result=decoded,
             reference=batch[1],
-            eos_idx=eos_idx)
+            eos_idx=eos_idx,
+            min_idx=min_idx,
+            max_idx=max_idx)
         _cer = batch_cer_dist/batch_cer_len
         total_cer_dist += batch_cer_dist
         total_cer_len += batch_cer_len
@@ -38,9 +40,11 @@ def dev(step, dataloader, model, sess, unit, idx2token, eos_idx=None):
         batch_wer_dist, batch_wer_len = batch_wer(
             result=decoded,
             reference=batch[1],
-            eos_idx=eos_idx,
             idx2token=idx2token,
-            unit=unit)
+            unit=unit,
+            eos_idx=eos_idx,
+            min_idx=min_idx,
+            max_idx=max_idx)
         _wer = batch_wer_dist/batch_wer_len
         total_wer_dist += batch_wer_dist
         total_wer_len += batch_wer_len
@@ -60,61 +64,14 @@ def dev(step, dataloader, model, sess, unit, idx2token, eos_idx=None):
     return cer, wer
 
 
-def func(sample, model, sess, unit, idx2token):
-    if not sample: return None
-    dict_feed = {model.list_pl[0]: np.expand_dims(sample['feature'], axis=0),
-                 model.list_pl[1]: np.array([len(sample['feature'])])}
-    decoded, _, _ = sess.run(model.list_run, feed_dict=dict_feed)
-
-    res_txt = array2text(decoded[0], unit, idx2token)
-    ref_txt = array2text(sample['label'], unit, idx2token)
-
-    list_res_char = list(res_txt)
-    list_ref_char = list(ref_txt)
-    list_res_word = res_txt.split()
-    list_ref_word = ref_txt.split()
-
-    cer_dist = ed.eval(list_res_char, list_ref_char)
-    cer_len = len(list_ref_char)
-    wer_dist = ed.eval(list_res_word, list_ref_word)
-    wer_len = len(list_ref_word)
-
-    return cer_dist, cer_len, wer_dist, wer_len
-
-
-def fast_dev(step, dataset, model, sess, unit, idx2token, eos_idx=None, workers=4):
-    from utils.threadsTools import multiprocessing
-    import Queue
-
-    start_time = time()
-
-    total_cer_dist = 0
-    total_cer_len = 0
-
-    total_wer_dist = 0
-    total_wer_len = 0
-
-    args = zip(dataset, repeat(model), repeat(sess), repeat(unit), repeat(idx2token))
-    res = multiprocessing(func, args, workers)
-    total_cer_dist, total_cer_len, total_wer_dist, total_wer_len = np.sum(res, 0)
-    cer = total_cer_dist/total_cer_len
-    wer = total_wer_dist/total_wer_len
-
-    used_time = time() - start_time
-    logging.info('=====dev info, total used time {:.2f}h==== \nWER: {:.4f}\ntotal_wer_len: {}'.format(
-                 used_time/3600, wer, total_wer_len))
-
-    return cer, wer
-
-
-def decode_test(step, sample, model, sess, unit, idx2token, eos_idx=None):
+def decode_test(step, sample, model, sess, unit, idx2token, eos_idx=None, min_idx=0, max_idx=None):
     # sample = dataset_dev[0]
     dict_feed = {model.list_pl[0]: np.expand_dims(sample['feature'], axis=0),
                  model.list_pl[1]: np.array([len(sample['feature'])])}
     sampled_id, shape_sample, _ = sess.run(model.list_run, feed_dict=dict_feed)
 
-    res_txt = array2text(sampled_id[0], unit, idx2token, eos_idx)
-    ref_txt = array2text(sample['label'], unit, idx2token, eos_idx)
+    res_txt = array2text(sampled_id[0], unit, idx2token, eos_idx, min_idx, max_idx)
+    ref_txt = array2text(sample['label'], unit, idx2token, eos_idx, min_idx, max_idx)
 
     logging.info('length: {}, res: \n{}\nref: \n{}'.format(
                  shape_sample[1], res_txt, ref_txt))

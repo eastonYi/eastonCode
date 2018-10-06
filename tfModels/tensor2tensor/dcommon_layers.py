@@ -30,13 +30,7 @@ def normal_conv(inputs, filter_num, kernel, stride, padding, use_relu, name,
     if norm_type == "batch":
       net = tf.layers.batch_normalization(net, name="bn")
     elif norm_type == "layer":
-      # if name == 'conv':
-      #   net = tf.Print(net, [net], message='net1: ', summarize=100)
-      # net = tf.contrib.layers.layer_norm(net)
-      # net = layer_normalize(net, name)
       net = layer_norm(net)
-      # if name == 'conv':
-      #   net = tf.Print(net, [net], message='net2: ', summarize=100)
     else:
       net = net
     output = tf.nn.relu(net) if use_relu else net

@@ -55,8 +55,9 @@ def residual(inputs, outputs, dropout_rate):
     Returns:
         A Tensor.
     """
-    outputs = inputs + tf.nn.dropout(outputs, 1 - dropout_rate)
-    outputs = layer_norm(outputs)
+    if outputs.get_shape()[-1] == inputs.get_shape()[-1]:
+        outputs = inputs + tf.nn.dropout(outputs, 1 - dropout_rate)
+        outputs = layer_norm(outputs)
 
     return outputs
 
@@ -210,7 +211,7 @@ def normal_conv(inputs, filter_num, kernel, stride, padding, use_relu, name,
     return output
 
 
-def conv_lstm(inputs, len_sequence, kernel_size, filters,
+def conv_lstm(inputs, kernel_size, filters,
               padding="SAME", dilation_rate=(1, 1), name='conv_lstm'):
     """Convolutional LSTM in 1 dimension."""
     from .tensor2tensor.common_layers import conv
@@ -223,10 +224,9 @@ def conv_lstm(inputs, len_sequence, kernel_size, filters,
             dilation_rate=dilation_rate)
         g = tf.split(tf.contrib.layers.layer_norm(gates, 4 * filters), 4, axis=3)
         new_cell = tf.sigmoid(g[0]) * inputs + tf.sigmoid(g[1]) * tf.tanh(g[3])
+        hidden_output = tf.sigmoid(g[2]) * tf.tanh(new_cell)
 
-    hidden_output = tf.sigmoid(g[2]) * tf.tanh(new_cell)
-
-    return hidden_output, len_sequence
+    return hidden_output
 
 
 class SimpleModel(object):

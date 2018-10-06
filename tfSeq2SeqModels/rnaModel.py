@@ -32,10 +32,11 @@ class RNAModel(Seq2SeqModel):
                 features=tensors_input.feature_splits[id_gpu],
                 len_feas=tensors_input.len_fea_splits[id_gpu])
 
-            decoder.build_helper(
-                type=self.helper_type,
-                encoded=encoded,
-                len_encoded=len_encoded)
+            if self.helper_type:
+                decoder.build_helper(
+                    type=self.helper_type,
+                    encoded=encoded,
+                    len_encoded=len_encoded)
             logits, sample_id, _ = decoder(encoded, len_encoded)
 
             if self.is_train:
@@ -50,14 +51,14 @@ class RNAModel(Seq2SeqModel):
                 with tf.name_scope("gradients"):
                     gradients = self.optimizer.compute_gradients(loss)
 
-            self.__class__.num_Model += 1
-            logging.info('\tbuild {} on {} succesfully! total model number: {}'.format(
-                self.__class__.__name__, name_gpu, self.__class__.num_Model))
+        self.__class__.num_Model += 1
+        logging.info('\tbuild {} on {} succesfully! total model number: {}'.format(
+            self.__class__.__name__, name_gpu, self.__class__.num_Model))
 
-            if self.is_train:
-                return loss, gradients
-            else:
-                return logits, len_encoded, sample_id
+        if self.is_train:
+            return loss, gradients
+        else:
+            return logits, len_encoded, sample_id
 
     def build_infer_graph(self):
         tensors_input = self.build_infer_input()
@@ -112,9 +113,13 @@ class RNAModel(Seq2SeqModel):
             rl_loss = self.policy_learning(logits, len_logits, labels, len_labels, encoded, len_encoded)
             loss += self.args.model.policy_learning * rl_loss
 
+        if self.args.model.expected_loss:
+            ep_loss = self.expected_loss(logits, len_logits, labels, len_labels)
+            loss += self.args.model.expected_loss * ep_loss
+
         return loss
 
-    def rna_decode(self, logits=None, len_logits=None):
+    def rna_decode(self, logits=None, len_logits=None, beam_reserve=False):
         beam_size = self.args.beam_size
         logits_timeMajor = tf.transpose(logits, [1, 0, 2])
 
@@ -124,11 +129,18 @@ class RNAModel(Seq2SeqModel):
                 len_logits,
                 merge_repeated=False)[0][0])
         else:
-            decoded_sparse = tf.to_int32(tf.nn.ctc_beam_search_decoder(
-                logits_timeMajor,
-                len_logits,
-                beam_width=beam_size,
-                merge_repeated=False)[0][0])
+            if beam_reserve:
+                decoded_sparse = tf.nn.ctc_beam_search_decoder(
+                    logits_timeMajor,
+                    len_logits,
+                    beam_width=beam_size,
+                    merge_repeated=False)[0]
+            else:
+                decoded_sparse = tf.to_int32(tf.nn.ctc_beam_search_decoder(
+                    logits_timeMajor,
+                    len_logits,
+                    beam_width=beam_size,
+                    merge_repeated=False)[0][0])
 
         return decoded_sparse
 
@@ -181,6 +193,19 @@ class RNAModel(Seq2SeqModel):
             flabels=sample,
             len_flabels=len_sample,
             batch_reward=reward,
+            ctc_merge_repeated=False,
             args=self.args)
 
         return rl_loss
+
+    def expected_loss(self, logits, len_logits, labels, len_labels):
+        label_sparse = dense_sequence_to_sparse(labels, len_labels)
+        list_decoded_sparse = self.rna_decode(logits, len_logits, beam_reserve=True)
+        list_wer = []
+        for decoded_sparse in list_decoded_sparse:
+            decoded_sparse = tf.to_int32(decoded_sparse)
+            list_wer.append(tf.edit_distance(decoded_sparse, label_sparse, normalize=True))
+        wer_bias = tf.reduce_mean(list_wer)
+        ep_loss = (list_wer - wer_bias)/len(list_wer)
+
+        return ep_loss

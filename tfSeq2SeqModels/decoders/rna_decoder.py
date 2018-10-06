@@ -4,16 +4,12 @@ contains the speller functionality
 '''
 
 import tensorflow as tf
-from collections import namedtuple
 
 from .rnn_decoder import RNNDecoder
-from ..tools import helpers
-
 from tfModels.layers import build_cell
 
 
 class RNADecoder(RNNDecoder):
-    '''a speller decoder for the LAS architecture'''
 
     def create_cell(self, num_cell_units, encoded, len_encoded):
         num_layers = self.args.model.decoder.num_layers

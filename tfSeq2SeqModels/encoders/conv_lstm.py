@@ -4,9 +4,9 @@ contains the listener code'''
 import tensorflow as tf
 import numpy as np
 from .encoder import Encoder
+from tfModels.layers import residual, conv_lstm
 
-from tfModels.tensor2tensor.common_layers import conv_lstm
-from tfModels.tensor2tensor.dcommon_layers import normal_conv, normal_pooling
+from tfModels.tensor2tensor.common_layers import layer_norm
 
 
 class CONV_LSTM(Encoder):
@@ -28,9 +28,9 @@ class CONV_LSTM(Encoder):
             - [batch_size] tensor
         '''
         num_cell_units = self.args.model.encoder.num_cell_units
+        use_residual = self.args.model.encoder.use_residual
         dropout = self.args.model.encoder.dropout
         num_filters = self.args.model.encoder.num_filters
-        use_residual = self.args.model.encoder.use_residual
         size_feat = self.args.data.dim_input
 
         # x = tf.expand_dims(features, -1)
@@ -39,7 +39,7 @@ class CONV_LSTM(Encoder):
         size_feat = int(size_feat/3)
         x = tf.reshape(features, [size_batch, size_length, size_feat, 3])
         # the first cnn layer
-        x = normal_conv(
+        x = self.normal_conv(
             inputs=x,
             filter_num=num_filters,
             kernel=(3,3),
@@ -50,7 +50,7 @@ class CONV_LSTM(Encoder):
             w_initializer=None,
             norm_type='layer')
         x = conv_lstm(
-            x=x,
+            inputs=x,
             kernel_size=(3,3),
             filters=num_filters)
 
@@ -66,72 +66,75 @@ class CONV_LSTM(Encoder):
             hidden_output=outputs,
             len_feas=output_seq_lengths,
             num_cell_units=num_cell_units,
-            dropout=dropout,
             use_residual=use_residual,
+            dropout=dropout,
             name='blstm_1')
-        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'HALF', 1)
+        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'SAME', 1)
 
         outputs = self.blstm(
             hidden_output=outputs,
             len_feas=output_seq_lengths,
             num_cell_units=num_cell_units,
-            dropout=dropout,
             use_residual=use_residual,
+            dropout=dropout,
             name='blstm_2')
-        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'SAME', 2)
+        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'HALF', 2)
 
         outputs = self.blstm(
             hidden_output=outputs,
             len_feas=output_seq_lengths,
             num_cell_units=num_cell_units,
-            dropout=dropout,
             use_residual=use_residual,
+            dropout=dropout,
             name='blstm_3')
-        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'HALF', 3)
+        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'SAME', 3)
 
-        # outputs, _ = self.blstm(
-        #     hidden_output=outputs,
-        #     len_feas=output_seq_lengths,
-        #     num_cell_units=num_cell_units,
-        #     num_layers=1,
-        #     is_train=self.is_train,
-        #     cell_type=cell_type,
-        #     name='en_blstm_4')
         outputs = self.blstm(
             hidden_output=outputs,
             len_feas=output_seq_lengths,
             num_cell_units=num_cell_units,
-            dropout=dropout,
             use_residual=use_residual,
+            dropout=dropout,
             name='blstm_4')
-        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'SAME', 4)
+        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'HALF', 4)
 
         return outputs, output_seq_lengths
 
-    def blstm(self, hidden_output, len_feas, num_cell_units, dropout, use_residual, name):
+    @staticmethod
+    def normal_conv(inputs, filter_num, kernel, stride, padding, use_relu, name,
+                    w_initializer=None, norm_type="batch"):
+        with tf.variable_scope(name):
+            net = tf.layers.conv2d(inputs, filter_num, kernel, stride, padding,
+                               kernel_initializer=w_initializer, name="conv")
+            if norm_type == "batch":
+                net = tf.layers.batch_normalization(net, name="bn")
+            elif norm_type == "layer":
+                net = layer_norm(net)
+            else:
+                net = net
+            output = tf.nn.relu(net) if use_relu else net
+
+        return output
+
+    @staticmethod
+    def blstm(hidden_output, len_feas, num_cell_units, use_residual, dropout, name):
         num_cell_units /= 2
 
         with tf.variable_scope(name):
-            fwd_lstm_cell = tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(num_cell_units)
-            bwd_lstm_cell = tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(num_cell_units)
-            if dropout > 0.0:
-                fwd_lstm_cell = tf.contrib.rnn.DropoutWrapper(
-                    fwd_lstm_cell,
-                    state_keep_prob=1.0 - dropout)
-                bwd_lstm_cell = tf.contrib.rnn.DropoutWrapper(
-                    bwd_lstm_cell,
-                    state_keep_prob=1.0 - dropout)
-            if use_residual:
-                fwd_lstm_cell = tf.contrib.rnn.ResidualWrapper(fwd_lstm_cell)
-                bwd_lstm_cell = tf.contrib.rnn.ResidualWrapper(bwd_lstm_cell)
+            f_cell = tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(num_cell_units)
+            b_cell = tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(num_cell_units)
+
             x, _ = tf.nn.bidirectional_dynamic_rnn(
-                cell_fw=fwd_lstm_cell,
-                cell_bw=bwd_lstm_cell,
+                cell_fw=f_cell,
+                cell_bw=b_cell,
                 inputs=hidden_output,
                 dtype=tf.float32,
                 time_major=False,
                 sequence_length=len_feas)
             x = tf.concat(x, 2)
+
+            if use_residual:
+                x = residual(hidden_output, x, dropout)
 
         return x
 
@@ -139,7 +142,7 @@ class CONV_LSTM(Encoder):
         num_cell_units = self.args.model.encoder.num_cell_units
 
         x = tf.expand_dims(x, axis=2)
-        x = normal_conv(
+        x = self.normal_conv(
             x,
             num_cell_units,
             (1, 1),
@@ -150,9 +153,9 @@ class CONV_LSTM(Encoder):
             norm_type='layer')
 
         if type == 'SAME':
-            x = normal_pooling(x, (1, 1), (1, 1), 'SAME')
+            x = tf.layers.max_pooling2d(x, (1, 1), (1, 1), 'SAME')
         elif type == 'HALF':
-            x = normal_pooling(x, (2, 1), (2, 1), 'SAME')
+            x = tf.layers.max_pooling2d(x, (2, 1), (2, 1), 'SAME')
             len_sequence = tf.cast(tf.ceil(tf.cast(len_sequence, tf.float32)/2), tf.int32)
 
         x = tf.squeeze(x, axis=2)

@@ -16,7 +16,7 @@ def get_tfdata_info(dir_tfdata, len_dataset, args, idx_init=150, dir_save_info='
     from tfTools.tfRecord import readTFRecord
 
     # feat, label = readTFRecord(dir_tfdata, args, transform=True)
-    #
+
     # config = tf.ConfigProto()
     # config.allow_soft_placement = True
     # config.gpu_options.allow_growth = True

@@ -79,13 +79,16 @@ class Seq2SeqModel(LSTM_Model):
         logging.info('\tbuild {} on {} succesfully! total model number: {}'.format(
             self.__class__.__name__, name_gpu, self.__class__.num_Model))
 
-        return (loss, gradients) if self.is_train else sample_id
+        if self.is_train:
+            return loss, gradients
+        else:
+            return logits, len_encoded, sample_id
 
     def build_infer_graph(self):
         tensors_input = self.build_infer_input()
 
         with tf.variable_scope(self.name, reuse=bool(self.__class__.num_Model)):
-            sample_id = self.build_single_graph(
+            logits, len_logits, sample_id = self.build_single_graph(
                 id_gpu=0,
                 name_gpu=self.list_gpu_devices[0],
                 tensors_input=tensors_input)
@@ -104,10 +107,7 @@ class Seq2SeqModel(LSTM_Model):
                 logits=logits,
                 labels=labels,
                 vocab_size=self.args.dim_output,
-                confidence=self.args.label_smoothing_confidence)
-            # crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(
-            #     labels=labels,
-            #     logits=logits)
+                confidence=self.args.model.label_smoothing_confidence)
             mask = tf.sequence_mask(
                 len_labels,
                 dtype=logits.dtype)

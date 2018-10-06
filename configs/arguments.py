@@ -49,6 +49,10 @@ logging.info('\nbucket_boundaries: {} \nbatch_size: {}'.format(
 # vocab
 args.token2idx, args.idx2token = load_vocab(args.dirs.vocab)
 args.dim_output = len(args.token2idx)
+if '<eos>' in args.token2idx.keys():
+    args.eos_idx = args.token2idx['<eos>']
+else:
+    args.eos_idx = None
 
 # learning rate
 # Linear Scaling Rule
