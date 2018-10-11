@@ -9,6 +9,7 @@ import os
 import logging
 from argparse import ArgumentParser
 from collections import Counter, defaultdict
+from tqdm import tqdm
 
 
 def load_vocab(path, vocab_size=None):
@@ -43,15 +44,27 @@ def make_vocab(fpath, fname):
     """
     word2cnt = Counter()
     for l in codecs.open(fpath, 'r', 'utf-8'):
-        words = l.split()
+        words = l.strip().split()[1:]
         word2cnt.update(Counter(words))
-    word2cnt.update({"<pad>": 10000000000,
-                     "<sos>": 1000000000,
+    word2cnt.update({"<pad>": 1000000000,
                      "<unk>": 100000000})
     with codecs.open(fname, 'w', 'utf-8') as fout:
         for word, cnt in word2cnt.most_common():
-            fout.write(u"{}\n".format(word))
+            fout.write(u"{}\t{}\n".format(word, cnt))
     logging.info('Vocab path: {}\t size: {}'.format(fname, len(word2cnt)))
+
+
+def pre_processing(fpath, fname):
+    import re
+    with open(fpath, errors='ignore') as f, open(fname, 'w') as fw:
+        for line in tqdm(f):
+            line = line.strip().split(maxsplit=1)
+            idx = line[0]
+            # list_tokens = re.findall('\[[^\[\]]+\]|[a-zA-Z0-9^\[^\]]+|[^x00-xff]', line[1])
+            list_tokens = re.findall('\[[^\[\]]+\]|[^x00-xff]|[A-Za-z]', line[1])
+            list_tokens = [token.upper() for token in list_tokens]
+
+            fw.write(idx+' '+' '.join(list_tokens)+'\n')
 
 
 if __name__ == '__main__':
@@ -63,8 +76,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     # Read config
     logging.basicConfig(level=logging.INFO)
-    if os.path.exists(args.src_vocab):
-        logging.info('Source vocab already exists at {}'.format(args.src_vocab))
-    else:
-        make_vocab(args.src_path, args.src_vocab)
+    # make_vocab(args.src_path, args.src_vocab)
+    pre_processing(args.src_path, args.src_vocab)
     logging.info("Done")

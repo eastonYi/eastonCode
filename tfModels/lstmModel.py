@@ -5,7 +5,7 @@ from collections import namedtuple
 from tensorflow.contrib.layers import fully_connected
 
 from tfTools.gradientTools import average_gradients, handle_gradients
-from tfModels.tools import warmup_exponential_decay, choose_device, lr_decay_with_warmup
+from tfModels.tools import warmup_exponential_decay, choose_device, lr_decay_with_warmup, stepped_down_decay
 from tfModels.layers import build_cell, cell_forward
 from tfModels.tensor2tensor.common_layers import layer_norm
 
@@ -213,7 +213,13 @@ class LSTM_Model(object):
         return loss, gradients if self.is_train else logits
 
     def build_optimizer(self):
-        if self.args.learning_rate:
+        if self.args.lr_type == 'stepped_down_decay':
+            self.learning_rate = stepped_down_decay(
+                self.global_step,
+                learning_rate=self.args.learning_rate,
+                decay_rate=self.args.decay_rate,
+                decay_steps=self.args.decay_steps)
+        elif self.args.lr_type == 'lr_decay_with_warmup':
             self.learning_rate = lr_decay_with_warmup(
                 self.global_step,
                 warmup_steps=self.args.warmup_steps,

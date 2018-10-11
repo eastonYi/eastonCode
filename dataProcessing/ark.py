@@ -41,7 +41,7 @@ class ArkReader(object):
         '''
 
         self.scp_position = 0
-        fin = open(scp_path, "r")
+        fin = open(scp_path, "r", errors='ignore')
         self.utt_ids = []
         self.scp_data = []
         line = fin.readline()

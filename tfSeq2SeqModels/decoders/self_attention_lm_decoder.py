@@ -74,7 +74,6 @@ class SelfAttentionDecoder(Decoder):
 
         # Positional Encoding
         decoder_output += common_attention.add_timing_signal_1d(decoder_output)
-        decoder_output = tf.concat([encoder_output, decoder_output], axis=1)
 
         # Dropout
         decoder_output = tf.layers.dropout(decoder_output,
@@ -100,6 +99,7 @@ class SelfAttentionDecoder(Decoder):
                                               name="decoder_self_attention",
                                               summaries=True),
                                           dropout_rate=residual_dropout_rate)
+                import pdb; pdb.set_trace()
 
                 # Feed Forward
                 decoder_output = residual(decoder_output,

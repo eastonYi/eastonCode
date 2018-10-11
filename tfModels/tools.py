@@ -72,6 +72,14 @@ def warmup_exponential_decay(global_step, warmup_steps, peak, decay_rate, decay_
                     peak * global_step / warmup_steps,
                     peak * decay_rate ** ((global_step - warmup_steps) / decay_steps))
 
+def stepped_down_decay(global_step, learning_rate, decay_rate, decay_steps):
+    decay_rate = tf.to_float(decay_rate)
+    decay_steps = tf.to_float(decay_steps)
+    learning_rate = tf.to_float(learning_rate)
+    global_step = tf.to_float(global_step)
+
+    return learning_rate * decay_rate ** (global_step // decay_steps)
+
 
 def cosine_decay_with_warmup(global_step,
                              learning_rate_base,
@@ -123,10 +131,14 @@ if __name__ == '__main__':
     global_step = tf.train.get_or_create_global_step()
     op_add = tf.assign_add(global_step, 1)
     # lr = cosine_decay_with_warmup(global_step, 0.1, 100000, 0.01, 10, 20)
-    lr = lr_decay_with_warmup(
-        global_step,
-        warmup_steps=10000,
-        hidden_units=256)
+    # lr = lr_decay_with_warmup(
+    #     global_step,
+    #     warmup_steps=10000,
+    #     hidden_units=256)
+    lr = stepped_down_decay(global_step,
+                            learning_rate=0.002,
+                            decay_rate=0.94,
+                            decay_steps=3000)
     # lr = warmup_exponential_decay(global_step,
     #                               warmup_steps=10000,
     #                               peak=0.001,

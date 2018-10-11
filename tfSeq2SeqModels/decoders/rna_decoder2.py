@@ -36,19 +36,16 @@ class RNADecoder(Decoder):
 
         # collect the initial states of lstms used in decoder.
         all_initial_states = {}
-
-        # the initial states of lstm which model the symbol recurrence (lm).
         initial_states = []
         zero_states = tf.zeros([batch_size, num_cell_units], dtype=tf.float32)
+        for i in range(num_layers):
+            initial_states.append(tf.contrib.rnn.LSTMStateTuple(zero_states, zero_states))
+        all_initial_states["lstm_states"] = tuple(initial_states)
 
         tf.get_variable(
             shape=(dim_output, num_cell_units+size_embedding),
             name='fully_connected',
             dtype=tf.float32)
-
-        for i in range(num_layers):
-            initial_states.append(tf.contrib.rnn.LSTMStateTuple(zero_states, zero_states))
-        all_initial_states["lstm_states"] = tuple(initial_states)
 
         # Loop body
         def inner_loop(i, prev_ids, prev_states, logits, att_results=None):
@@ -115,13 +112,12 @@ def symbols_to_logits_fn(i, prev_ids, all_lstm_states, logits, encoder_outputs, 
     # Concat the prediction embedding and the encoder_output
     eshape = tf.shape(encoder_outputs)
     initial_tensor = tf.zeros([eshape[0], eshape[2]])
-    initial_tensor.set_shape([None, num_cell_units_en])
+    initial_tensor.set_shape([None, num_cell_units_de])
     prev_encoder_output = tf.cond(tf.equal(i, 0),
                                   lambda: initial_tensor,
                                   lambda: encoder_outputs[:, i - 1, :])
     decoder_inputs = tf.concat([prev_encoder_output, prev_emb], axis=1)
     decoder_inputs.set_shape([None, num_cell_units_en + size_embedding])
-
 
     # Lstm part
     with tf.variable_scope("decoder_lstms"):
@@ -130,7 +126,7 @@ def symbols_to_logits_fn(i, prev_ids, all_lstm_states, logits, encoder_outputs, 
             num_cell_units_de,
             initializer=None,
             dropout=dropout)
-        prev_lstm_states = lstm_states
+
         lstm_outputs, lstm_states = tf.contrib.legacy_seq2seq.rnn_decoder(
             decoder_inputs=[decoder_inputs],
             initial_state=lstm_states,
