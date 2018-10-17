@@ -33,6 +33,7 @@ def save2tfrecord(dataset, dir_save, size_file=5000000):
     idx_file = -1
     num_damaged_sample = 0
 
+    assert dataset.transform == False
     for i, sample in enumerate(tqdm(dataset)):
         if not sample:
             num_damaged_sample += 1
@@ -83,7 +84,7 @@ def readTFRecord(dir_data, args, shuffle=False, transform=False):
     )
 
     feature = tf.reshape(tf.decode_raw(features['feature'], tf.float32),
-        [-1, args.data.dim_feature])
+        [-1, args.data.dim_feature])[:2000, :]
     # id = tf.decode_raw(features['id'], tf.string)
     label = tf.decode_raw(features['label'], tf.int32)
 

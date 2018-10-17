@@ -27,10 +27,24 @@ class Seq2SeqModel(LSTM_Model):
         '''
         self.gen_encoder = encoder # encoder class
         self.gen_decoder = decoder # decoder class
-        self.embed_table_encoder = embed_table_encoder
-        self.embed_table_decoder = embed_table_decoder
-        if embed_table_encoder:
+        self.embed_table_encoder = self.get_embedding(
+            embed_table=embed_table_encoder,
+            size_input=self.args.encoder.size_vocab,
+            size_embedding=self.args.encoder.size_embedding,
+            name='embedding_table_en')
+        if embed_table_encoder or (not encoder):
+            """
+            embed_table_encoder: MT
+            not encoder: only decoder, LM
+            """
             self.build_pl_input = self.build_idx_input
+            self.build_inper_input = self.build_infer_idx_input
+
+        self.embed_table_decoder = self.get_embedding(
+            embed_table=embed_table_decoder,
+            size_input=self.args.dim_output,
+            size_embedding=self.args.decoder.size_embedding,
+            name='embedding_table_de')
         self.helper_type = args.model.decoder.trainHelper if is_train \
             else args.model.decoder.inferHelper
 
@@ -142,3 +156,55 @@ class Seq2SeqModel(LSTM_Model):
         tensors_input.shape_batch = tf.shape(batch_features)
 
         return tensors_input
+
+    def build_infer_input(self):
+        """
+        used for inference. For inference must use placeholder.
+        during the infer, we only get the decoded result and not use label
+        """
+        tensors_input = namedtuple('tensors_input',
+            'feature_splits, len_fea_splits, shape_batch')
+
+        with tf.device(self.center_device):
+            with tf.name_scope("inputs"):
+                batch_features = tf.placeholder(tf.float32, [None, None, self.args.data.dim_input], name='input_feature')
+                batch_fea_lens = tf.placeholder(tf.int32, [None], name='input_fea_lens')
+                self.list_pl = [batch_features, batch_fea_lens]
+                # split input data alone batch axis to gpus
+                tensors_input.feature_splits = tf.split(batch_features, self.num_gpus, name="feature_splits")
+                tensors_input.len_fea_splits = tf.split(batch_fea_lens, self.num_gpus, name="len_fea_splits")
+
+        tensors_input.shape_batch = tf.shape(batch_features)
+
+        return tensors_input
+
+    def build_infer_idx_input(self):
+        """
+        used for inference. For inference must use placeholder.
+        during the infer, we only get the decoded result and not use label
+        """
+        tensors_input = namedtuple('tensors_input',
+            'feature_splits, len_fea_splits, shape_batch')
+
+        with tf.device(self.center_device):
+            with tf.name_scope("inputs"):
+                batch_src = tf.placeholder(tf.int32, [None, None], name='input_src')
+                batch_src_lens = tf.placeholder(tf.int32, [None], name='input_src_lens')
+                self.list_pl = [batch_src, batch_src_lens]
+                # split input data alone batch axis to gpus
+                batch_features = tf.nn.embedding_lookup(self.embed_table_encoder, batch_src)
+                tensors_input.feature_splits = tf.split(batch_features, self.num_gpus, name="feature_splits")
+                tensors_input.len_fea_splits = tf.split(batch_src_lens, self.num_gpus, name="len_fea_splits")
+
+        tensors_input.shape_batch = tf.shape(batch_features)
+
+        return tensors_input
+
+    @staticmethod
+    def get_embedding(self, embed_table, size_input, size_embedding, name="embedding"):
+        if embed_table is None:
+            with tf.device("/cpu:0"):
+                embed_table = tf.get_variable(
+                    name, [size_input, size_embedding], dtype=tf.float32)
+
+        return embed_table

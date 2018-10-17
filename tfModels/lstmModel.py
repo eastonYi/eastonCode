@@ -38,6 +38,10 @@ class LSTM_Model(object):
         tensors_input = self.build_input()
         # create optimizer
         self.optimizer = self.build_optimizer()
+        if 'horovod' in sys.modules:
+            import horovod.tensorflow as hvd
+            logging.info('wrap the optimizer with horovod!')
+            self.optimizer = hvd.DistributedOptimizer(self.optimizer)
 
         loss_step = []
         tower_grads = []
@@ -233,6 +237,11 @@ class LSTM_Model(object):
                 peak=self.args.peak,
                 decay_rate=0.5,
                 decay_steps=self.args.decay_steps)
+
+        if 'horovod' in sys.modules:
+            import horovod.tensorflow as hvd
+            logging.info('wrap the optimizer with horovod!')
+            self.learning_rate = self.learning_rate * hvd.size()
 
         with tf.name_scope("optimizer"):
             if self.args.optimizer == "adam":

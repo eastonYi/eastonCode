@@ -45,7 +45,7 @@ class DataSet:
 
 
 class ASRDataSet(DataSet):
-    def __init__(self, list_files, args, shuffle, transform=True):
+    def __init__(self, list_files, args, shuffle, transform):
         self.list_files = list_files
         self.transform = transform
         self.args = args
@@ -63,7 +63,7 @@ class ASRDataSet(DataSet):
 
 
 class ASR_csv_DataSet(ASRDataSet):
-    def __init__(self, list_files, args, shuffle, transform=True):
+    def __init__(self, list_files, args, shuffle, transform):
         super().__init__(list_files, args, shuffle, transform)
         self.list_utterances = self.gen_utter_list(list_files)
         if shuffle:
@@ -101,7 +101,7 @@ class ASR_csv_DataSet(ASRDataSet):
 
 
 class ASR_scp_DataSet(ASRDataSet):
-    def __init__(self, f_scp, f_trans, f_vocab, args, transform=True):
+    def __init__(self, f_scp, f_trans, f_vocab, args, shuffle, transform):
         """
         Args:
             f_scp: the scp file consists of paths to feature data
@@ -111,7 +111,7 @@ class ASR_scp_DataSet(ASRDataSet):
         """
         from dataProcessing.ark import ArkReader
         self.list_files = [f_scp]
-        super().__init__(self.list_files, args, transform)
+        super().__init__(self.list_files, args, shuffle, transform)
         self.reader = ArkReader(f_scp)
         self.id2trans = self.gen_id2trans(f_trans)
 

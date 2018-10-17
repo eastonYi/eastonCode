@@ -69,9 +69,11 @@ class RNAModel(Seq2SeqModel):
                 name_gpu=self.list_gpu_devices[0],
                 tensors_input=tensors_input)
             # sample_id
-            if sample_id.get_shape().ndims == 3:
-                sample_id = sample_id[:,:,0]
+            # if sample_id.get_shape().ndims == 3:
+            #     sample_id = sample_id[:,:,0]
+
             # ctc decode
+            # why not simply use the sample_id: https://distill.pub/2017/ctc/#inference
             decoded_sparse = self.rna_decode(logits, len_logits)
             decoded = tf.sparse_to_dense(
                 sparse_indices=decoded_sparse.indices,
@@ -82,7 +84,6 @@ class RNAModel(Seq2SeqModel):
             distribution = tf.nn.softmax(logits)
 
         return decoded, tensors_input.shape_batch, distribution
-        # return decoded, sample_id, decoded_sparse
 
     def rna_loss(self, logits, len_logits, labels, len_labels, encoded=None, len_encoded=None):
         with tf.name_scope("rna_loss"):

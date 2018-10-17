@@ -13,8 +13,6 @@ args = AttrDict(yaml.load(open(CONFIG_FILE)))
 
 args.num_gpus = len(args.gpus.split(','))
 args.list_gpus = ['/gpu:{}'.format(i) for i in range(args.num_gpus)]
-os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus
-print('CUDA_VISIBLE_DEVICES: ', args.gpus)
 
 # dirs
 args.dir_model = Path.cwd() / args.dirs.models / CONFIG_FILE.split('/')[-1]

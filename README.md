@@ -11,6 +11,9 @@ the `arguments.py` load the general configs into an object `args`. We process so
 
 
 # Models
+<a href="/README.html" target="_blank">
+  <img class="aligncenter" alt="framework classes" src="images/2018/10/framework-classes.png" width="700" height="300" />
+</a>
 ## Seq2Seq Models
 it has the encoder folder and decoder folder
 

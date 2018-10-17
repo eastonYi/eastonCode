@@ -18,6 +18,7 @@ For example, for a vocabulary containing 3 labels `[a, b, c]`,
 """
 
 import numpy as np
+from tqdm import tqdm
 np.set_printoptions(suppress=True)
 import collections
 
@@ -164,7 +165,7 @@ def ctc_reduce_map(batch_samples, blank=0):
     return padding_list_seqs(sents, dtype=np.int32, value=0)
 
 
-def ctc_decode(activaties, beam_size=10, blank=0):
+def ctc_decode(activaties, beam_size=10, blank=None):
     """
     Performs inference for the given output probabilities.
     decode does not need to be batching up
@@ -191,6 +192,8 @@ def ctc_decode(activaties, beam_size=10, blank=0):
     given that it ends in a blank and does not end in a blank at this time step.
     """
     T, S = activaties.shape
+    if not blank:
+        blank = S-1
     activaties_log = np.log(activaties)
     # Elements in the beam are (prefix, (p_blank, p_no_blank))
     # Initialize the beam with the empty sequence, a probability of
@@ -229,7 +232,52 @@ def ctc_decode(activaties, beam_size=10, blank=0):
         beam = sorted(beam_extend.items(), key=lambda x: sum_log(*x[1]), reverse=True)[:beam_size]
 
     best = beam[0]
+
     return best[0], -sum_log(*best[1])
+
+
+def rna_decode(activaties, beam_size=10, blank=None, prune=None, lm=None, alpha=0.30, beta=5):
+    """
+    """
+    T, S = activaties.shape
+    activaties_log = np.log(activaties)
+    lm = (lambda l: 1) if lm is None else lm
+    if not blank:
+        blank = S-1
+    # Elements in the beam are (prefix, (p_blank, p_no_blank))
+    # Initialize the beam with the empty sequence, a probability of
+    # 1 for ending in blank and zero for ending in non-blank (in log space).
+    beam = [(tuple(), (LOG_ONE, LOG_ZERO))]
+
+    for t in range(T): # Loop over time
+        # A default dictionary to store the next step candidates.
+        beam_extend = collections.defaultdict(lambda: [LOG_ZERO, LOG_ZERO])
+        prune_log = np.log(prune) if prune else LOG_ZERO
+        pruned_vocab = [i for i in np.where(activaties_log[t] > prune_log)[0]]
+        # print(len(pruned_vocab))
+        for s in pruned_vocab: # Loop over vocab
+            p = activaties_log[t, s]
+            for prefix, (p_b, p_nb) in beam: # Loop over beam
+                if s == blank:
+                    # If we propose a blank the prefix doesn't change.
+                    # Only the probability of ending in blank gets updated.
+                    beam_extend[prefix][0] = sum_log(p_b + p, p_nb + p)
+                else:
+                    # Extend the prefix by the new character s and add it to the beam.
+                    # Only the probability of not ending in blank gets updated.
+                    prefix_extend = prefix + (s,)
+                    lm_prob_log = np.log(lm(prefix_extend) ** alpha)
+                    beam_extend[prefix_extend][1] = sum_log(p_b + p + lm_prob_log, p_nb + p + lm_prob_log)
+
+        # Sort and trim the beam before moving on to the next time-step.
+        sorter = lambda l:sum_log(*l[1]) * (len(l) + 1) ** beta
+        beam = sorted(beam_extend.items(), key=sorter, reverse=True)[:beam_size]
+
+    if len(beam)>0:
+        best = beam[0]
+        return best[0], -sum_log(*best[1])
+    else:
+        return [], None
 
 
 def activations2seqs_probs(batch_activations, seqs_labels):
@@ -327,6 +375,7 @@ def testCost():
 
     print(ctc_loss(inputs, seqs_labels, seq_fea_lens, seq_label_lens))
 
+
 def test_reduce_map():
     """
     """
@@ -388,6 +437,24 @@ def testdDecode():
         print(result_label, score)
 
 
+def testRNADecode():
+    import pickle
+    from utils.vocab import load_vocab
+
+    _, idx2token = load_vocab('/Users/easton/Projects/eastonCode/examples/decode/vocab_3673+1.txt')
+    with open('/Users/easton/Projects/eastonCode/examples/decode/distribution.txt', 'rb') as f,\
+        open('/Users/easton/Projects/eastonCode/examples/decode/dev_rna_res.txt', 'w') as fw:
+        while True:
+            try:
+                res, _ = rna_decode(pickle.load(f), beam_size=10, prune=0.0002, alpha=0.30, beta=5)
+                # res, _ = ctc_decode(pickle.load(f), beam_size=1)
+                res = ' '.join(idx2token[id] for id in res)
+                print(res)
+                fw.write(res+'\n')
+            except EOFError:
+                break
+
 if __name__ == "__main__":
     # testCost()
-    testdDecode()
+    # testdDecode()
+    testRNADecode()
