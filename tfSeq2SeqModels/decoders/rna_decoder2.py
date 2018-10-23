@@ -1,5 +1,5 @@
 '''@file rnn_decoder.py
-contains the general recurrent decoder class'''
+the while_loop implementation'''
 
 import tensorflow as tf
 from .decoder import Decoder

@@ -29,9 +29,14 @@ class Seq2SeqModel(LSTM_Model):
         self.gen_decoder = decoder # decoder class
         self.embed_table_encoder = self.get_embedding(
             embed_table=embed_table_encoder,
-            size_input=self.args.encoder.size_vocab,
-            size_embedding=self.args.encoder.size_embedding,
+            size_input=args.model.encoder.size_vocab,
+            size_embedding=args.model.encoder.size_embedding,
             name='embedding_table_en')
+        self.embed_table_decoder = self.get_embedding(
+            embed_table=embed_table_decoder,
+            size_input=args.dim_output,
+            size_embedding=args.model.decoder.size_embedding,
+            name='embedding_table_de')
         if embed_table_encoder or (not encoder):
             """
             embed_table_encoder: MT
@@ -40,11 +45,6 @@ class Seq2SeqModel(LSTM_Model):
             self.build_pl_input = self.build_idx_input
             self.build_inper_input = self.build_infer_idx_input
 
-        self.embed_table_decoder = self.get_embedding(
-            embed_table=embed_table_decoder,
-            size_input=self.args.dim_output,
-            size_embedding=self.args.decoder.size_embedding,
-            name='embedding_table_de')
         self.helper_type = args.model.decoder.trainHelper if is_train \
             else args.model.decoder.inferHelper
 
@@ -201,10 +201,13 @@ class Seq2SeqModel(LSTM_Model):
         return tensors_input
 
     @staticmethod
-    def get_embedding(self, embed_table, size_input, size_embedding, name="embedding"):
-        if embed_table is None:
-            with tf.device("/cpu:0"):
-                embed_table = tf.get_variable(
-                    name, [size_input, size_embedding], dtype=tf.float32)
+    def get_embedding(embed_table, size_input, size_embedding, name="embedding"):
+        """
+        old model must define embedding table out of the framework
+        """
+        # if embed_table is None:
+        #     with tf.device("/cpu:0"):
+        #         embed_table = tf.get_variable(
+        #             name, [size_input, size_embedding], dtype=tf.float32)
 
         return embed_table

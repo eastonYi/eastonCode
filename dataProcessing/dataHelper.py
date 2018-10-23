@@ -45,13 +45,15 @@ class DataSet:
 
 
 class ASRDataSet(DataSet):
-    def __init__(self, list_files, args, shuffle, transform):
+    def __init__(self, list_files, args, _shuffle, transform):
         self.list_files = list_files
         self.transform = transform
         self.args = args
-        self.shuffle = shuffle
+        self._shuffle = _shuffle
         self.token2idx, self.idx2token = args.token2idx, args.idx2token
         self.end_id = self.gen_end_id(self.token2idx)
+        if _shuffle:
+            self.shuffle_list_files()
 
     def gen_end_id(self, token2idx):
         if '<eos>' in token2idx.keys():
@@ -61,12 +63,15 @@ class ASRDataSet(DataSet):
 
         return eos_id
 
+    def shuffle_list_files(self):
+        shuffle(self.list_files)
+
 
 class ASR_csv_DataSet(ASRDataSet):
-    def __init__(self, list_files, args, shuffle, transform):
-        super().__init__(list_files, args, shuffle, transform)
+    def __init__(self, list_files, args, _shuffle, transform):
+        super().__init__(list_files, args, _shuffle, transform)
         self.list_utterances = self.gen_utter_list(list_files)
-        if shuffle:
+        if _shuffle:
             self.shuffle_list_files()
 
     def __getitem__(self, idx):
@@ -101,7 +106,7 @@ class ASR_csv_DataSet(ASRDataSet):
 
 
 class ASR_scp_DataSet(ASRDataSet):
-    def __init__(self, f_scp, f_trans, f_vocab, args, shuffle, transform):
+    def __init__(self, f_scp, f_trans, f_vocab, args, _shuffle, transform):
         """
         Args:
             f_scp: the scp file consists of paths to feature data
@@ -111,12 +116,23 @@ class ASR_scp_DataSet(ASRDataSet):
         """
         from dataProcessing.ark import ArkReader
         self.list_files = [f_scp]
-        super().__init__(self.list_files, args, shuffle, transform)
+        super().__init__(self.list_files, args, _shuffle, transform)
         self.reader = ArkReader(f_scp)
         self.id2trans = self.gen_id2trans(f_trans)
 
     def __getitem__(self, idx):
         sample = {}
+
+        sample['feature'] = self.reader.read_utt_data(idx)
+        if self.transform:
+            sample['feature'] = process_raw_feature(sample['feature'], self.args)
+
+        trans = self.id2trans[self.reader.utt_ids[idx]]
+        sample['label'] = np.array(
+            [self.token2idx.get(token, self.token2idx['<unk>'])
+            for token in trans] + self.end_id,
+            dtype=np.int32)
+        sample['id'] = self.reader.utt_ids[idx]
 
         try:
             sample['feature'] = self.reader.read_utt_data(idx)
@@ -130,7 +146,7 @@ class ASR_scp_DataSet(ASRDataSet):
                 dtype=np.int32)
             sample['id'] = self.reader.utt_ids[idx]
         except:
-            print('Not fond {}!'.format(self.reader.utt_ids[idx]))
+            print('Not found {}!'.format(self.reader.utt_ids[idx]))
             sample = None
 
         return sample

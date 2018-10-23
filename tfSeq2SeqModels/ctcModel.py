@@ -2,38 +2,39 @@ import tensorflow as tf
 import logging
 import sys
 
-from tensorflow.contrib.layers import fully_connected
-
 from tfModels.tools import choose_device
-from tfModels.lstmModel import LSTM_Model
+from tfSeq2SeqModels.seq2seqModel import Seq2SeqModel
 from tfTools.tfTools import dense_sequence_to_sparse
 
 logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format='%(levelname)s(%(filename)s:%(lineno)d): %(message)s')
 
 
-class CTCModel(LSTM_Model):
+class CTCModel(Seq2SeqModel):
 
-    def __init__(self, tensor_global_step, is_train, args, batch=None, name='tf_CTC_Model',
-                 encoder=None, decoder=None, embed_table_encoder=None, embed_table_decoder=None):
+    def __init__(self, tensor_global_step, encoder, decoder, is_train, args,
+                 batch=None, embed_table_encoder=None, embed_table_decoder=None,
+                 name='tf_CTC_Model'):
         self.sample_prob = tf.convert_to_tensor(0.0)
         super().__init__(tensor_global_step, is_train, args, batch, name)
 
     def build_single_graph(self, id_gpu, name_gpu, tensors_input):
-        Encoder = self.args.model.encoder.type
         tf.get_variable_scope().set_initializer(tf.variance_scaling_initializer(
             1.0, mode="fan_avg", distribution="uniform"))
         with tf.device(lambda op: choose_device(op, name_gpu, self.center_device)):
             # create encoder obj
-            encoder = Encoder(
+            encoder = self.gen_encoder(
                 is_train=self.is_train,
                 args=self.args)
+            decoder = self.gen_decoder(
+                is_train=self.is_train,
+                embed_table=None,
+                global_step=self.global_step,
+                args=self.args)
             # using encoder to encode the inout sequence
-            hidden_output, len_logits = encoder(
+            hidden_output, len_hidden_output = encoder(
                 features=tensors_input.feature_splits[id_gpu],
                 len_feas=tensors_input.len_fea_splits[id_gpu])
-            logits = fully_connected(
-                inputs=hidden_output,
-                num_outputs=self.args.dim_output)
+            logits, len_logits = decoder(hidden_output, len_hidden_output)
 
             if self.is_train:
                 loss = self.ctc_loss(

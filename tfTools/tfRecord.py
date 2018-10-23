@@ -11,6 +11,7 @@ import tensorflow as tf
 import logging
 from tqdm import tqdm
 from pathlib import Path
+from random import shuffle
 
 from tfTools import tfAudioTools as tfAudio
 from tfTools.tfTools import sequence_mask
@@ -63,12 +64,14 @@ def save2tfrecord(dataset, dir_save, size_file=5000000):
     return
 
 
-def readTFRecord(dir_data, args, shuffle=False, transform=False):
+def readTFRecord(dir_data, args, _shuffle=False, transform=False):
     """
     the tensor could run unlimitatly
     """
     list_filenames = fentch_filelist(dir_data)
-    if not shuffle:
+    if _shuffle:
+        shuffle(list_filenames)
+    else:
         list_filenames.sort()
 
     filename_queue = tf.train.string_input_producer(
@@ -131,7 +134,7 @@ class TFReader:
         self.feat, self.label = readTFRecord(
             dir_tfdata,
             args,
-            shuffle=is_train,
+            _shuffle=is_train,
             transform=True)
 
     def __iter__(self):
