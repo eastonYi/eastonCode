@@ -31,19 +31,19 @@ class Seq2SeqModel(LSTM_Model):
             embed_table=embed_table_encoder,
             size_input=args.model.encoder.size_vocab,
             size_embedding=args.model.encoder.size_embedding,
-            name='embedding_table_en')
+            args=args)
         self.embed_table_decoder = self.get_embedding(
             embed_table=embed_table_decoder,
             size_input=args.dim_output,
             size_embedding=args.model.decoder.size_embedding,
-            name='embedding_table_de')
+            args=args)
         if embed_table_encoder or (not encoder):
             """
             embed_table_encoder: MT
             not encoder: only decoder, LM
             """
             self.build_pl_input = self.build_idx_input
-            self.build_inper_input = self.build_infer_idx_input
+            self.build_infer_input = self.build_infer_idx_input
 
         self.helper_type = args.model.decoder.trainHelper if is_train \
             else args.model.decoder.inferHelper
@@ -148,7 +148,8 @@ class Seq2SeqModel(LSTM_Model):
                 batch_ref_lens = tf.placeholder(tf.int32, [None], name='input_ref_lens')
                 self.list_pl = [batch_src, batch_ref, batch_src_lens, batch_ref_lens]
                 # split input data alone batch axis to gpus
-                batch_features = tf.nn.embedding_lookup(self.embed_table_encoder, batch_src)
+                embed_table = self.embed_table_encoder if self.embed_table_encoder else self.embed_table_decoder
+                batch_features = tf.nn.embedding_lookup(embed_table, batch_src)
                 tensors_input.feature_splits = tf.split(batch_features, self.num_gpus, name="feature_splits")
                 tensors_input.label_splits = tf.split(batch_ref, self.num_gpus, name="label_splits")
                 tensors_input.len_fea_splits = tf.split(batch_src_lens, self.num_gpus, name="len_fea_splits")
@@ -192,7 +193,8 @@ class Seq2SeqModel(LSTM_Model):
                 batch_src_lens = tf.placeholder(tf.int32, [None], name='input_src_lens')
                 self.list_pl = [batch_src, batch_src_lens]
                 # split input data alone batch axis to gpus
-                batch_features = tf.nn.embedding_lookup(self.embed_table_encoder, batch_src)
+                embed_table = self.embed_table_encoder if self.embed_table_encoder else self.embed_table_decoder
+                batch_features = tf.nn.embedding_lookup(embed_table, batch_src)
                 tensors_input.feature_splits = tf.split(batch_features, self.num_gpus, name="feature_splits")
                 tensors_input.len_fea_splits = tf.split(batch_src_lens, self.num_gpus, name="len_fea_splits")
 
@@ -200,14 +202,11 @@ class Seq2SeqModel(LSTM_Model):
 
         return tensors_input
 
-    @staticmethod
-    def get_embedding(embed_table, size_input, size_embedding, name="embedding"):
-        """
-        old model must define embedding table out of the framework
-        """
-        # if embed_table is None:
-        #     with tf.device("/cpu:0"):
-        #         embed_table = tf.get_variable(
-        #             name, [size_input, size_embedding], dtype=tf.float32)
+    def get_embedding(self, embed_table, size_input, size_embedding, args):
+        if size_embedding and (type(embed_table) is not tf.Variable):
+            with tf.device("/cpu:0"):
+                with tf.variable_scope(self.name, reuse=(self.__class__.num_Model > 0)):
+                    embed_table = tf.get_variable(
+                        "embedding", [size_input, size_embedding], dtype=tf.float32)
 
         return embed_table

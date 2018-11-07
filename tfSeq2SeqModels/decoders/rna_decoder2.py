@@ -38,7 +38,6 @@ class RNADecoder(Decoder):
         def step(i, preds, all_lstm_states, logits):
 
             lstm_states = all_lstm_states["lstm_states"]
-            prev_emb = self.embedding(preds[:, -1])
 
             eshape = tf.shape(encoded)
             initial_tensor = tf.zeros([eshape[0], eshape[2]])
@@ -47,8 +46,11 @@ class RNADecoder(Decoder):
                                           lambda: initial_tensor,
                                           lambda: encoded[:, i-1, :])
 
+            prev_emb = self.embedding(preds[:, -1])
             decoder_inputs = tf.concat([prev_encoder_output, prev_emb], axis=1)
             decoder_inputs.set_shape([None, num_cell_units_en + size_embedding])
+            if size_embedding < 2:
+                decoder_inputs = decoder_inputs[:, :num_cell_units_en]
 
             # Lstm part
             with tf.variable_scope("decoder_lstms"):

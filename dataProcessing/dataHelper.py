@@ -166,6 +166,46 @@ class ASR_scp_DataSet(ASRDataSet):
         return id2trans
 
 
+class LMDataSet(DataSet):
+    """
+    dataset for language model. Refer to the PTB dataset
+    """
+    def __init__(self, list_files, args, _shuffle):
+        self.list_files = list_files
+        self.args = args
+        self._shuffle = _shuffle
+        self.token2idx, self.idx2token = args.token2idx, args.idx2token
+        self.end_id = '<eos>'
+        if _shuffle:
+            shuffle(self.list_files)
+        self.size_dataset = self.get_size()
+
+    def __getitem__(self, idx):
+        pass
+
+    def __len__(self):
+        return self.size_dataset
+
+    def get_size(self):
+        num_lines = 0
+        for filename in self.list_files:
+            num_lines += sum(1 for line in open(filename))
+
+        return num_lines
+
+    def __iter__(self):
+        # while True:
+        for filename in self.list_files:
+            with open(filename) as f:
+                for line in f:
+                    line = line.strip().split()
+                    text_ids = [self.token2idx[word] for word in line]
+                    src_ids = text_ids
+                    tar_ids = text_ids[1:] + [self.token2idx['sos']]
+                    sample = {'feature': src_ids, 'label': tar_ids}
+                    yield sample
+
+
 class FakeDataSet(DataSet):
     def __init__(self):
         self.dim_feature = 3
@@ -325,21 +365,22 @@ class DataLoader(SimpleDataLoader):
         # max_length = buckets[-1]
         caches = collections.defaultdict(lambda: [[], [], 0])
 
-        for sample in self.dataset:
-            if not sample: continue
-            seq_features, seq_labels = sample['feature'], sample['label']
-            # assert len(seq_features) == len(seq_labels)
-            id_bucket, bucket = size_bucket_to_put(len(seq_features), buckets)
-            if bucket is None:
-                continue
-            caches[bucket][0].append(seq_features)
-            caches[bucket][1].append(seq_labels)
+        for _ in range(self.num_loops):
+            for sample in self.dataset:
+                if not sample: continue
+                seq_features, seq_labels = sample['feature'], sample['label']
+                # assert len(seq_features) == len(seq_labels)
+                id_bucket, bucket = size_bucket_to_put(len(seq_features), buckets)
+                if bucket is None:
+                    continue
+                caches[bucket][0].append(seq_features)
+                caches[bucket][1].append(seq_labels)
 
-            caches[bucket][2] += 1
-            if caches[bucket][2] >= self.args.list_batch_size[id_bucket]:
-                batch = (caches[bucket][0], caches[bucket][1])
-                yield self.padding_list_seq_with_labels(*batch)
-                caches[bucket] = [[], [], 0]
+                caches[bucket][2] += 1
+                if caches[bucket][2] >= self.args.list_batch_size[id_bucket]:
+                    batch = (caches[bucket][0], caches[bucket][1])
+                    yield self.padding_list_seq_with_labels(*batch)
+                    caches[bucket] = [[], [], 0]
 
         # Clean remain samples.
         for bucket in buckets:
@@ -477,6 +518,44 @@ class ASRDataLoader(DataLoader):
     def __len__(self):
         return self.size_dataset
 
+
+class LMDataLoader(DataLoader):
+    def __init__(self, dataset, num_loops, args):
+        self.dataset = dataset
+        self.num_batch_tokens = args.data.num_batch_tokens
+        self.num_steps = args.data.num_steps
+        self.batch_size = args.batch_size
+        self.num_loops = num_loops
+        self.size_dataset = len(dataset)
+        self.args = args
+
+    def __iter__(self):
+        return self.batch_with_buckets()
+
+
+class PTBDataLoader(DataLoader):
+    def __init__(self, dataset, num_loops, args):
+        self.dataset = dataset
+        self.num_batch_tokens = args.num_batch_tokens
+        self.num_steps = args.num_steps
+        self.batch_size = args.num_batch_tokens // args.num_steps
+        self.num_loops = num_loops
+        self.size_dataset = len(dataset)
+
+    def __iter__(self):
+        for _ in range(self.num_loops):
+            for filename in self.dataset.list_files:
+                with open(filename, "r") as f:
+                    raw_data = f.read().replace("\n", "<eos>").split()
+                    raw_data = [self.dataset.token2idx[word] for word in raw_data if word in self.dataset.token2idx.keys()]
+                    data_len = len(raw_data)
+                    batch_len = data_len // self.batch_size
+                    data = np.array(raw_data[:self.batch_size * batch_len]).reshape([self.batch_size, batch_len])
+                    epoch_size = (batch_len - 1) // self.num_steps
+                    for i in range(epoch_size):
+                        x = data[:, i*self.num_steps: (i+1)*self.num_steps]
+                        y = data[:, i*self.num_steps+1: (i+1)*self.num_steps+1]
+                        yield x, y, [self.num_steps]*self.batch_size, [self.num_steps]*self.batch_size
 
 if __name__ == '__main__':
     dataset = FakeDataSet()

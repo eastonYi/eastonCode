@@ -11,8 +11,12 @@ class RNAModel(Seq2SeqModel):
     def __init__(self, tensor_global_step, encoder, decoder, is_train, args,
                  batch=None, embed_table_encoder=None, embed_table_decoder=None,
                  name='RNA_Model'):
+        self.name = name
         super().__init__(tensor_global_step, encoder, decoder, is_train, args,
-                     batch, None, embed_table_decoder, name)
+                         batch,
+                         embed_table_encoder=None,
+                         embed_table_decoder=embed_table_decoder,
+                         name=name)
 
     def build_single_graph(self, id_gpu, name_gpu, tensors_input):
         tf.get_variable_scope().set_initializer(tf.variance_scaling_initializer(
@@ -21,7 +25,7 @@ class RNAModel(Seq2SeqModel):
             encoder = self.gen_encoder(
                 is_train=self.is_train,
                 args=self.args)
-            decoder = self.gen_decoder(
+            self.decoder = decoder = self.gen_decoder(
                 is_train=self.is_train,
                 embed_table=self.embed_table_decoder,
                 global_step=self.global_step,
@@ -37,6 +41,7 @@ class RNAModel(Seq2SeqModel):
                     type=self.helper_type,
                     encoded=encoded,
                     len_encoded=len_encoded)
+
             logits, sample_id, _ = decoder(encoded, len_encoded)
 
             if self.is_train:

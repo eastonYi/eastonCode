@@ -5,7 +5,7 @@ from collections import namedtuple
 from tensorflow.contrib.layers import fully_connected
 
 from tfTools.gradientTools import average_gradients, handle_gradients
-from tfModels.tools import warmup_exponential_decay, choose_device, lr_decay_with_warmup, stepped_down_decay
+from tfModels.tools import warmup_exponential_decay, choose_device, lr_decay_with_warmup, stepped_down_decay, exponential_decay
 from tfModels.layers import build_cell, cell_forward
 from tfModels.tensor2tensor.common_layers import layer_norm
 
@@ -228,8 +228,15 @@ class LSTM_Model(object):
                 self.global_step,
                 warmup_steps=self.args.warmup_steps,
                 hidden_units=self.args.model.encoder.num_cell_units)
-        elif self.args.constant_learning_rate:
+        elif self.args.lr_type == 'constant_learning_rate':
             self.learning_rate = tf.convert_to_tensor(self.args.constant_learning_rate)
+        elif self.args.lr_type == 'exponential_decay':
+            self.learning_rate = exponential_decay(
+                self.global_step,
+                lr_init=self.args.lr_init,
+                lr_final=self.args.lr_final,
+                decay_rate=self.args.decay_rate,
+                decay_steps=self.args.decay_steps)
         else:
             self.learning_rate = warmup_exponential_decay(
                 self.global_step,
@@ -246,12 +253,14 @@ class LSTM_Model(object):
         with tf.name_scope("optimizer"):
             if self.args.optimizer == "adam":
                 logging.info("Using ADAM as optimizer")
-
                 optimizer = tf.train.AdamOptimizer(self.learning_rate,
                                                    beta1=0.9,
                                                    beta2=0.98,
                                                    epsilon=1e-9,
                                                    name=self.args.optimizer)
+            elif self.args.optimizer == "adagrad":
+                logging.info("Using Adagrad as optimizer")
+                optimizer = tf.train.AdagradOptimizer(self.learning_rate)
             else:
                 logging.info("Using SGD as optimizer")
                 optimizer = tf.train.GradientDescentOptimizer(self.learning_rate,
@@ -261,13 +270,10 @@ class LSTM_Model(object):
     @property
     def variables(self):
         '''get a list of the models's variables'''
+        import re
         variables = tf.get_collection(
             tf.GraphKeys.GLOBAL_VARIABLES,
-            scope=self.name + '/')
-
-        if hasattr(self, 'wrapped'):
-            #pylint: disable=E1101
-            variables += self.wrapped.variables
+            scope=re.compile('.+'+self.name))
 
         return variables
 

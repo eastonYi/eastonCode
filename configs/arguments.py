@@ -8,7 +8,7 @@ logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='%(levelname)s
 from utils.configReader import AttrDict
 from utils.vocab import load_vocab
 
-CONFIG_FILE = sys.argv[1]
+CONFIG_FILE = sys.argv[-1]
 args = AttrDict(yaml.load(open(CONFIG_FILE)))
 
 args.num_gpus = len(args.gpus.split(','))
@@ -39,7 +39,7 @@ else:
                        args.size_bucket_end,
                        args.size_bucket_gap)]
 
-args.list_batch_size = ([int(args.num_batch_token / boundary) * args.num_gpus
+args.list_batch_size = ([int(args.num_batch_tokens / boundary) * args.num_gpus
         for boundary in (args.list_bucket_boundaries)] + [args.num_gpus])
 logging.info('\nbucket_boundaries: {} \nbatch_size: {}'.format(
     args.list_bucket_boundaries, args.list_batch_size))

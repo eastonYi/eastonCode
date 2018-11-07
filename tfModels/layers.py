@@ -91,6 +91,8 @@ def single_cell(num_units, is_train, cell_type,
         single_cell = tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(num_units)
     elif cell_type == "gru":
         single_cell = GRUCell(num_units)
+    elif cell_type == "LSTMBlockCell":
+        single_cell = tf.contrib.rnn.LSTMBlockCell(num_units, forget_bias=forget_bias)
     elif cell_type == "layer_norm_lstm":
         single_cell = LayerNormBasicLSTMCell(
             num_units,
@@ -112,7 +114,7 @@ def single_cell(num_units, is_train, cell_type,
 
 
 def build_cell(num_units, num_layers, is_train, cell_type,
-               dropout=0.0, forget_bias=0.0, use_residual=True, dim_project=None):
+               dropout=0.0, forget_bias=0.0, use_residual=False, dim_project=None):
     with tf.name_scope(cell_type):
         list_cell = [single_cell(
             num_units=num_units,

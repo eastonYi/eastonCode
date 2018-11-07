@@ -76,6 +76,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     # Read config
     logging.basicConfig(level=logging.INFO)
-    # make_vocab(args.src_path, args.src_vocab)
-    pre_processing(args.src_path, args.src_vocab)
+    make_vocab(args.src_path, args.src_vocab)
+    # pre_processing(args.src_path, args.src_vocab)
     logging.info("Done")

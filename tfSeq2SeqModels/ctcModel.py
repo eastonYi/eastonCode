@@ -15,7 +15,8 @@ class CTCModel(Seq2SeqModel):
                  batch=None, embed_table_encoder=None, embed_table_decoder=None,
                  name='tf_CTC_Model'):
         self.sample_prob = tf.convert_to_tensor(0.0)
-        super().__init__(tensor_global_step, is_train, args, batch, name)
+        super().__init__(tensor_global_step, encoder, decoder, is_train, args,
+                     batch, None, None, name)
 
     def build_single_graph(self, id_gpu, name_gpu, tensors_input):
         tf.get_variable_scope().set_initializer(tf.variance_scaling_initializer(
@@ -34,7 +35,7 @@ class CTCModel(Seq2SeqModel):
             hidden_output, len_hidden_output = encoder(
                 features=tensors_input.feature_splits[id_gpu],
                 len_feas=tensors_input.len_fea_splits[id_gpu])
-            logits, len_logits = decoder(hidden_output, len_hidden_output)
+            logits, _, len_logits = decoder(hidden_output, len_hidden_output)
 
             if self.is_train:
                 loss = self.ctc_loss(

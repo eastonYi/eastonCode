@@ -1,6 +1,7 @@
 '''@file rnn_decoder.py
 contains the general recurrent decoder class'''
 
+import tensorflow as tf
 from tensorflow.contrib.layers import fully_connected
 from .decoder import Decoder
 # from ..tools import helpers
@@ -29,4 +30,6 @@ class FCDecoder(Decoder):
         '''
         dim_output = self.args.dim_output
         logits = fully_connected(encoded, dim_output)
-        return logits, len_encoded
+        preds = tf.argmax(logits, -1)
+
+        return logits, preds, len_encoded

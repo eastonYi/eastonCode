@@ -43,7 +43,7 @@ def get_tfdata_info(dir_tfdata, len_dataset, args, idx_init=150, dir_save_info='
                 return i-1
         return
 
-    M = args.num_batch_token
+    M = args.num_batch_tokens
     b0 = int(M / list_length[idx_init])
     k = b0/sum(list_num[:idx_init+1])
     energy = M/k

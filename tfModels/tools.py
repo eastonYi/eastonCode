@@ -72,6 +72,7 @@ def warmup_exponential_decay(global_step, warmup_steps, peak, decay_rate, decay_
                     peak * global_step / warmup_steps,
                     peak * decay_rate ** ((global_step - warmup_steps) / decay_steps))
 
+
 def stepped_down_decay(global_step, learning_rate, decay_rate, decay_steps):
     decay_rate = tf.to_float(decay_rate)
     decay_steps = tf.to_float(decay_steps)
@@ -115,6 +116,15 @@ def cosine_decay_with_warmup(global_step,
         learning_rate = tf.where(global_step < warmup_steps, warmup_rate, learning_rate)
 
     return tf.where(global_step > total_steps, 0.0, learning_rate, name='learning_rate')
+
+
+def exponential_decay(global_step, lr_init, decay_rate, decay_steps, lr_final=None):
+    lr = tf.train.exponential_decay(lr_init, global_step, decay_steps, decay_rate, staircase=True)
+    if lr_final:
+        lr = tf.cond(tf.less(lr, lr_final),
+                lambda: tf.constant(lr_final),
+                lambda: lr)
+    return lr
 
 
 def create_embedding(size_vocab, size_embedding, name='embedding'):
