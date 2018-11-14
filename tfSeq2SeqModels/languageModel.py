@@ -15,6 +15,10 @@ logging.basicConfig(level=logging.DEBUG, format='%(levelname)s(%(filename)s:%(li
 
 
 class LanguageModel(Seq2SeqModel):
+    """
+    Intrinsic Evaluation: Perplexity;
+    Extrinsic (task-based) Evaluation: Word Error Rate
+    """
 
     def __init__(self, tensor_global_step, encoder, decoder, is_train, args,
                  embed_table_encoder=None, embed_table_decoder=None,
@@ -177,8 +181,8 @@ class LanguageModel(Seq2SeqModel):
                 batch_ref_lens = tf.placeholder(tf.int32, [None], name='input_ref_lens')
                 self.list_pl = [batch_src, batch_ref, batch_src_lens, batch_ref_lens]
                 # split input data alone batch axis to gpus
-                embed_table = self.embed_table_encoder if self.embed_table_encoder else self.embed_table_decoder
-                batch_features = tf.nn.embedding_lookup(embed_table, batch_src)
+                self.embed_table = self.embed_table_encoder if self.embed_table_encoder else self.embed_table_decoder
+                batch_features = tf.nn.embedding_lookup(self.embed_table, batch_src)
                 tensors_input.feature_splits = tf.split(batch_features, self.num_gpus, name="feature_splits")
                 tensors_input.label_splits = tf.split(batch_ref, self.num_gpus, name="label_splits")
                 tensors_input.len_fea_splits = tf.split(batch_src_lens, self.num_gpus, name="len_fea_splits")
@@ -190,10 +194,19 @@ class LanguageModel(Seq2SeqModel):
     def zero_state(self, batch_size, dtype=tf.float32):
         return self.cell.zero_state(batch_size, dtype=tf.float32)
 
-    def forward(self, input, state):
+    def forward(self, input, state, stop_gradient=False):
+        if input.get_shape().ndims <2:
+            input = tf.nn.embedding_lookup(self.embed_table, input)
         output, state = tf.contrib.legacy_seq2seq.rnn_decoder(
             decoder_inputs=[input],
             initial_state=state,
             cell=self.cell)
 
-        return output, state
+        output = tf.stop_gradient(output)
+
+        list_cells = []
+        for cell in state:
+            cell = tf.nn.rnn_cell.LSTMStateTuple(tf.stop_gradient(cell[0]), tf.stop_gradient(cell[1]))
+            list_cells.append(cell)
+
+        return output, tuple(list_cells)

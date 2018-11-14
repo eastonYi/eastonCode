@@ -11,17 +11,14 @@ import numpy as np
 def editDistance(hyp, ref):
     '''
     This function is to calculate the edit distance of reference sentence and the hypothesis sentence.
-
     Main algorithm used is dynamic programming.
-
-    Attributes:
+    Input:
         hyp: the list of words produced by splitting hypothesis sentence.
         ref: the list of words produced by splitting reference sentence.
-
-    d:   r e f
-       h
-       y
-       p
+        d:   r e f
+           h
+           y
+           p
     '''
     assert (len(hyp) < 200) and (len(ref) < 200)
     d = np.zeros((len(hyp)+1, len(ref)+1), dtype=np.uint8)
@@ -41,6 +38,7 @@ def editDistance(hyp, ref):
 
 def editDistance_v2(hyp, ref, table, idx_hyp):
     '''
+    faster version
     hyp' crresponding to table has changed after idx_hyp, and continue to
     calculate the table.
     d:   _ r e f
@@ -395,15 +393,19 @@ def editDistance_batch():
 
 
 if __name__ == '__main__':
-    hyp = 'he is a big gay , '.split()
-    ref = 'she is a gay , dd'.split()
+    # hyp = 'he is a big gay , '.split()
+    # ref = 'she is a gay , dd'.split()
     # hyp = '它 是 一个 坏人'.split()
     # ref = '她 是 一个 大 大 好人 啊'.split()
     # cer(ref, hyp)
     # wer(hyp, ref)
-    count1 = count2 =0
-    editDistance_batch()
-    # test_ed()
+    # count1 = count2 =0
+    ref = list('SUNDAY')
+    hyp = list('SATRAPY')
+    table = editDistance(hyp, ref)
+    print(table)
+    # editDistance_batch()
+    # test_editDistance()
     # test_editDistance_v2()
     # tabel_d = editDistance(hyp, ref)
     # print(getStepList(hyp, ref, tabel_d))

@@ -10,8 +10,7 @@ from tfModels.tensor2tensor.common_layers import layer_norm
 
 
 class CONV_LSTM(Encoder):
-    '''a listener object
-    transforms input features into a high level representation
+    '''VERY DEEP CONVOLUTIONAL NETWORKS FOR END-TO-END SPEECH RECOGNITION
     '''
 
     def encode(self, features, len_feas):

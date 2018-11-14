@@ -25,6 +25,11 @@ def save2tfrecord(dataset, dir_save, size_file=5000000):
         dir_save: the dir to save the tfdata files
     Return:
         Nothing but a folder consist of `tfdata.info`, `*.recode`
+
+    Notice: the feats.scp file is better to cluster by ark file and sort by the index in the ark files
+    For example, '...split16/1/final_feats.ark:143468' the paths share the same arkfile '1/final_feats.ark' need to close with each other,
+    Meanwhile, these files need to be sorted by the index ':143468'
+    ther sorted scp file will be 10x faster than the unsorted one.
     """
 
     def _bytes_feature(value):

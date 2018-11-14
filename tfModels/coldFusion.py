@@ -6,8 +6,6 @@ def cold_fusion(logit_lm, state_decoder, num_cell_units, dim_output):
     """
 
     """
-    # batch_size = tf.shape(logit_lm)[0]
-
     state_decoder = tf.concat(list(itertools.chain.from_iterable(state_decoder)), 1)
 
     hidden_output_lm = fully_connected(
@@ -28,7 +26,7 @@ def cold_fusion(logit_lm, state_decoder, num_cell_units, dim_output):
     logits_coldfusion = fully_connected(
         inputs=state_coldfusion,
         num_outputs=dim_output,
-        activation_fn=tf.nn.relu,
+        activation_fn=tf.identity,
         biases_initializer=None,
         scope='CF_layer_2')
 

@@ -2,11 +2,11 @@
 the while_loop implementation'''
 
 import tensorflow as tf
-from tensorflow.contrib.layers import fully_connected
 from .decoder import Decoder
 from tensorflow.python.util import nest
 from tfModels.tensor2tensor import dcommon_layers
 from tfModels.coldFusion import cold_fusion
+
 
 class RNADecoder(Decoder):
     """language model cold fusion
@@ -44,6 +44,7 @@ class RNADecoder(Decoder):
         all_initial_states["state_decoder"] = self.zero_state(batch_size, dtype=tf.float32)
         if self.args.model.decoder.cold_fusion:
             all_initial_states["state_lm"] = self.lm.zero_state(batch_size, dtype=tf.float32)
+            all_initial_states["logit_lm"] = tf.zeros([batch_size, dim_output], dtype=tf.float32)
 
         def step(i, preds, all_states, logits):
             state_decoder = all_states["state_decoder"]
@@ -59,21 +60,35 @@ class RNADecoder(Decoder):
                     cell=self.cell)
                 all_states["state_decoder"] = state_decoder
 
-                if self.args.model.decoder.cold_fusion:
-                    logit_lm, state_lm = self.lm.forward(
-                        input=prev_emb,
-                        state=all_states["state_lm"])
-                    logit_lm = tf.stop_gradient(logit_lm)
-                    cur_logit = cold_fusion(
-                        logit_lm=logit_lm[0],
-                        state_decoder=state_decoder,
-                        num_cell_units=self.num_cell_units_lm,
-                        dim_output=dim_output)
-                    all_states["state_lm"] = state_lm
-                else:
-                    cur_logit = fully_connected(
-                        inputs=output_decoder[0],
-                        num_outputs=dim_output)
+            if self.args.model.decoder.cold_fusion:
+                logit_lm, state_lm = self.lm.forward(
+                    input=preds[:, -1],
+                    state=all_states["state_lm"],
+                    stop_gradient=True)
+
+                logit_lm, state_lm = self.update_lm(
+                    preds=preds[:, -1],
+                    blank_id=blank_id,
+                    logit_lm=logit_lm[0],
+                    state_lm=state_lm,
+                    logit_lm_pre=all_initial_states["logit_lm"],
+                    state_lm_pre=all_initial_states["state_lm"],
+                    num_cell_units_lm=self.args.model.lm.model.decoder.num_cell_units)
+
+                all_initial_states["logit_lm"] = logit_lm
+                all_states["state_lm"] = state_lm
+
+                cur_logit = cold_fusion(
+                    logit_lm=logit_lm,
+                    state_decoder=state_decoder,
+                    num_cell_units=self.num_cell_units_lm,
+                    dim_output=dim_output)
+            else:
+                cur_logit = tf.layers.dense(
+                    inputs=output_decoder[0],
+                    units=dim_output,
+                    activation=None,
+                    use_bias=False)
 
             cur_ids = tf.to_int32(tf.argmax(cur_logit, -1))
             preds = tf.concat([preds, tf.expand_dims(cur_ids, 1)], axis=1)
@@ -113,12 +128,24 @@ class RNADecoder(Decoder):
 
     def zero_state(self, batch_size, dtype):
         return self.cell.zero_state(batch_size, dtype)
-        # num_cell_units_de = self.args.model.decoder.num_cell_units
-        # num_layers = self.args.model.decoder.num_layers
-        #
-        # initial_states = []
-        # zero_states = tf.zeros([batch_size, num_cell_units_de], dtype=dtype)
-        # for i in range(num_layers):
-        #     initial_states.append(tf.contrib.rnn.LSTMStateTuple(zero_states, zero_states))
-        #
-        # return tuple(initial_states)
+
+    @staticmethod
+    def update_lm(preds, blank_id, logit_lm, state_lm, logit_lm_pre, state_lm_pre, num_cell_units_lm):
+        is_blank = tf.equal(preds, tf.fill(tf.shape(preds), blank_id))
+
+        # logit update
+        updated_logit_lm = tf.where(
+            condition=is_blank,
+            x=logit_lm_pre,
+            y=logit_lm)
+
+        # state update
+        is_blank = tf.stack([tf.to_float(is_blank)]*num_cell_units_lm, 1)
+        updated_state_lm = []
+        for cell_pre, cell in zip(state_lm_pre, state_lm):
+            h_states = is_blank * cell_pre.h + (1-is_blank) * cell.h
+            c_states = is_blank * cell_pre.c + (1-is_blank) * cell.c
+            updated_state_lm.append(tf.contrib.rnn.LSTMStateTuple(c_states, h_states))
+        updated_state_lm = tuple(updated_state_lm)
+
+        return updated_logit_lm, updated_state_lm

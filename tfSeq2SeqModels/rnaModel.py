@@ -102,7 +102,7 @@ class RNAModel(Seq2SeqModel):
                 ctc_merge_repeated=False,
                 ignore_longer_outputs_than_inputs=True,
                 time_major=False)
-            loss = tf.reduce_mean(ctc_loss_batch) # utter-level ctc loss
+            loss = ctc_loss_batch # utter-level ctc loss
 
         if self.args.model.confidence_penalty:
             print('using confidence penalty')
@@ -113,6 +113,7 @@ class RNAModel(Seq2SeqModel):
 
                 neg_entropy = tf.reduce_sum(real_probs * tf.log(real_probs), axis=-1)
                 ls_loss = self.args.model.confidence_penalty * tf.reduce_sum(neg_entropy, axis=-1)
+
             loss += ls_loss
 
         if self.args.model.policy_learning:
@@ -122,6 +123,8 @@ class RNAModel(Seq2SeqModel):
         if self.args.model.expected_loss:
             ep_loss = self.expected_loss(logits, len_logits, labels, len_labels)
             loss += self.args.model.expected_loss * ep_loss
+
+        loss = tf.reduce_mean(loss)
 
         return loss
 
