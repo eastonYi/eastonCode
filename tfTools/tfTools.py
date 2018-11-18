@@ -188,6 +188,11 @@ def right_shift_rows(p, shift, pad):
 
     return tf.concat([tf.fill(dims=[tf.shape(p)[0], 1], value=pad), p[:, :-shift]], axis=1)
 
+def left_shift_rows(p, shift, pad):
+    assert type(shift) is int
+
+    return tf.concat([p[:, shift:], tf.fill(dims=[tf.shape(p)[0], 1], value=pad)], axis=1)
+
 
 def sparse_shrink(sparse, pad=0):
     """
