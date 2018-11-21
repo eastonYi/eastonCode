@@ -73,6 +73,9 @@ def ED_batch_tf(hyp, ref):
 
 def optimal_completion_targets(hyp, ref):
     '''
+    OCD targsts
+    Optimal Completion Distillation for Sequence Learning
+    http://arxiv.org/abs/1810.01398
     this is for no eos
     return the 3d mask tensor of the distance table
     '''
@@ -81,9 +84,8 @@ def optimal_completion_targets(hyp, ref):
 
     # initialization
     d = np.zeros((batch_size, len_hyp+1, len_ref+1), dtype=np.int32)
-    for i in range(batch_size):
-        d[i, 0, :] = np.arange(len_ref+1)
-        d[i, :, 0] = np.arange(len_hyp+1)
+    d[:, 0, :] = np.tile(np.expand_dims(np.arange(len_ref+1), 0), [batch_size, 1])
+    d[:, :, 0] = np.tile(np.expand_dims(np.arange(len_hyp+1), 0), [batch_size, 1])
     # m = np.zeros((batch_size, len_hyp+1), dtype=np.uint8)
 
     # dynamic programming
@@ -102,6 +104,104 @@ def optimal_completion_targets(hyp, ref):
 
     return mask_min
 
+def optimal_completion_targets_with_blank(hyp, ref, blank_id):
+    '''
+    OCD targsts for RNA structure where blanks are inserted between the ref labels
+    '''
+    batch_size, len_hyp = hyp.shape
+    _, len_ref = ref.shape
+
+    # initialization
+    d = np.zeros((batch_size, len_hyp+1, len_ref+1), dtype=np.int32)
+    d[:, 0, :] = np.tile(np.expand_dims(np.arange(len_ref+1), 0), [batch_size, 1])
+    blank_batch = np.ones([batch_size], dtype=np.int32)*blank_id
+    real_count = np.ones([batch_size], dtype=np.int32)
+    for i in range(1, len_hyp+1):
+        cond = (hyp[:,i-1] != blank_batch)
+        d[:,i,0] = np.where(
+            cond,
+            real_count,
+            real_count-1)
+        real_count += cond
+
+    # dynamic programming
+    for i in range(1, len_hyp+1):
+        for j in range(1, len_ref+1):
+            sub = d[:, i-1, j-1] + 1
+            ins = d[:, i, j-1] + 1
+            det = d[:, i-1, j] + 1
+            d[:, i, j] = np.where(
+                hyp[:, i-1] == ref[:, j-1],
+                d[:, i-1, j-1],
+                np.amin(np.stack([sub, ins, det]), 0))
+            # the line of blank is kept as previous line
+            d[:, i, j] = np.where(
+                hyp[:, i-1] == blank_batch,
+                d[:, i-1, j],
+                d[:, i, j])
+
+    m = np.amin(d, -1)
+    mask_min = np.equal(d, np.stack([m]*d.shape[-1], -1)).astype(np.int32)
+
+    return mask_min
+
+def optimal_completion_targets_with_blank_v2(hyp, ref, blank_id):
+    '''
+    OCD targsts for RNA structure where blanks are inserted between the ref labels
+    we add the blank id as the end column
+    '''
+    batch_size, len_hyp = hyp.shape
+    _, len_ref = ref.shape
+
+    len_hyp_real = np.sum(hyp.astype(bool) , -1)
+    len_ref_real = np.sum(ref.astype(bool) , -1)
+
+    # initialization & blank target assignment
+    d = np.zeros((batch_size, len_hyp, len_ref+1), dtype=np.int32)
+    d[:, 0, :] = np.tile(np.expand_dims(np.arange(len_ref+1), 0), [batch_size, 1])
+    target_blank = np.zeros([batch_size, len_hyp], dtype=np.bool)
+    for i in range(len_hyp):
+        if i == 0:
+            real_count = np.zeros([batch_size], dtype=np.int32)
+            batch_blank = np.ones([batch_size], dtype=np.int32)*blank_id
+            num_blanks_left = len_hyp_real-len_ref_real
+            d[:,i,0] = real_count
+        else:
+            cond = (hyp[:,i-1] != batch_blank)
+            d[:,i,0] = np.where(
+                cond,
+                real_count+1,
+                real_count)
+            real_count += cond
+            num_blanks_left -= (1 - cond)
+
+        p = (num_blanks_left/(len_hyp_real-i+1e-5)).clip(min=0, max=1)
+        target_blank[:, i] = np.where(
+            np.random.binomial(n=[1]*batch_size, p=p),
+            np.ones([batch_size], dtype=np.bool),
+            np.zeros([batch_size], dtype=np.bool))
+
+    # dynamic programming
+    for i in range(1, len_hyp):
+        for j in range(1, len_ref+1):
+            sub = d[:, i-1, j-1] + 1
+            ins = d[:, i, j-1] + 1
+            det = d[:, i-1, j] + 1
+            d[:, i, j] = np.where(
+                hyp[:, i-1] == ref[:, j-1],
+                d[:, i-1, j-1],
+                np.amin(np.stack([sub, ins, det]), 0))
+            # the line of blank is kept as previous line
+            d[:, i, j] = np.where(
+                hyp[:, i-1] == batch_blank,
+                d[:, i-1, j],
+                d[:, i, j])
+
+    m = np.amin(d, -1)
+    mask_min = np.equal(d, np.stack([m]*d.shape[-1], -1))
+    mask_min[:, :, -1] = target_blank
+
+    return mask_min.astype(np.int32)
 
 def OCD_tf(hyp, ref, vocab_size):
     """
@@ -110,7 +210,9 @@ def OCD_tf(hyp, ref, vocab_size):
     from tfTools.tfTools import batch_pad
     blank_id = vocab_size - 1
 
-    mask_min = tf.py_func(optimal_completion_targets, [hyp, ref], tf.int32)
+    # mask_min = tf.py_func(optimal_completion_targets, [hyp, ref], tf.int32)
+    # mask_min = tf.py_func(optimal_completion_targets_with_blank, [hyp, ref, blank_id], tf.int32)
+    mask_min = tf.py_func(optimal_completion_targets_with_blank_v2, [hyp, ref, blank_id], tf.int32)
     # replace the ref's pad with blank since it is the end of the sequence
     ref = tf.to_int32(tf.ones_like(ref)*blank_id)*tf.to_int32(tf.equal(ref, 0)) + ref
     shifted_ref = batch_pad(p=ref, length=1, pad=blank_id, direct='tail')
@@ -119,7 +221,7 @@ def OCD_tf(hyp, ref, vocab_size):
 
     # labels: batch x time x vocab
     # we do not need the optimal targrts when the prefix is complete.
-    labels = tf.one_hot(optimal_targets[:, :-1, :], vocab_size)
+    labels = tf.one_hot(optimal_targets, vocab_size)
     optimal_distribution = tf.reduce_sum(labels, -2)
 
     # ignore the label 0 in labels
@@ -130,7 +232,8 @@ def OCD_tf(hyp, ref, vocab_size):
     # average over all the optimal targets
     optimal_distribution = tf.nn.softmax(optimal_distribution*1024)
 
-    return optimal_distribution, optimal_targets
+    # return optimal_distribution, optimal_targets
+    return optimal_distribution
 
 
 def test_ED_tf():
@@ -254,7 +357,7 @@ def test_OCD():
                           [list_vocab.index(s) for s in 'SUNDA_']],
                          dtype=np.int32)
 
-    # print(optimal_completion_targets(np.array([value_hyp, value_ref]), np.array([value_ref, value_hyp])))
+    # print(optimal_completion_targets(value_hyp, value_ref))
 
     # build graph
     hpy = tf.placeholder(tf.int32)
@@ -279,7 +382,143 @@ def test_OCD():
             print(optimal_distribution[i])
 
 
+def test_OCD_with_blank():
+    """
+    optimal_targets:
+     [[[ 1  0  0  0  0  0 10]
+      [ 1  0  0  0  0  0  0]
+      [ 0  6  0  0  0  0 10]
+      [ 0  6  0  0  0  0  0]
+      [ 0  6  7  0  0  0 10]
+      [ 0  6  7  0  0  0 10]
+      [ 0  6  7  0  0  0  0]
+      [ 0  6  7  8  0  0 10]
+      [ 0  6  7  8  2  0 10]
+      [ 0  6  7  8  2  0 10]
+      [ 0  0  0  0  0  5 10]
+      [ 0  0  0  0  0  5 10]
+      [ 0  0  0  0  0  5 10]
+      [ 0  0  0  0  0  5 10]
+      [ 0  0  0  0  0  5 10]]
+
+     [[ 1  0  0  0  0  0 10]
+      [ 0  6  0  0  0  0 10]
+      [ 0  6  0  0  0  0 10]
+      [ 0  6  7  0  0  0 10]
+      [ 0  6  7  8  0  0  0]
+      [ 0  6  7  8  0  0 10]
+      [ 0  6  7  8  2  0 10]
+      [ 0  6  7  8  2  0 10]
+      [ 0  0  0  0  0 10 10]
+      [ 0  0  0  0  0 10 10]
+      [ 0  0  0  0  0 10 10]
+      [ 0  0  0  0  0 10 10]
+      [ 0  0  0  0  0  0  0]
+      [ 0  0  0  0  0  0  0]
+      [ 0  0  0  0  0  0  0]]]
+
+    sample 0:
+    [[ 1  0  0  0  0  0 10]
+     [ 1  0  0  0  0  0  0]
+     [ 0  6  0  0  0  0 10]
+     [ 0  6  0  0  0  0  0]
+     [ 0  6  7  0  0  0 10]
+     [ 0  6  7  0  0  0 10]
+     [ 0  6  7  0  0  0  0]
+     [ 0  6  7  8  0  0 10]
+     [ 0  6  7  8  2  0 10]
+     [ 0  6  7  8  2  0 10]
+     [ 0  0  0  0  0  5 10]
+     [ 0  0  0  0  0  5 10]
+     [ 0  0  0  0  0  5 10]
+     [ 0  0  0  0  0  5 10]
+     [ 0  0  0  0  0  5 10]]
+    S, -
+    S
+    U, -
+    U
+    U, N, -
+    U, N, -
+    U, N
+    U, N, D, -
+    U, N, D, A, -
+    U, N, D, A, -
+    Y, -
+    Y, -
+    Y, -
+    Y, -
+    Y, -
+    (15, 11)
+
+    sample 1:
+    [[ 1  0  0  0  0  0 10]
+     [ 0  6  0  0  0  0 10]
+     [ 0  6  0  0  0  0 10]
+     [ 0  6  7  0  0  0 10]
+     [ 0  6  7  8  0  0  0]
+     [ 0  6  7  8  0  0 10]
+     [ 0  6  7  8  2  0 10]
+     [ 0  6  7  8  2  0 10]
+     [ 0  0  0  0  0 10 10]
+     [ 0  0  0  0  0 10 10]
+     [ 0  0  0  0  0 10 10]
+     [ 0  0  0  0  0 10 10]
+     [ 0  0  0  0  0  0  0]
+     [ 0  0  0  0  0  0  0]
+     [ 0  0  0  0  0  0  0]]
+    S, -
+    U, -
+    U, -
+    U, N, -
+    U, N, D
+    U, N, D, -
+    U, N, D, A, -
+    U, N, D, A, -
+    -, -
+    -, -
+    -, -
+    -, -
+
+
+
+    (15, 11)
+    """
+    list_vocab = list(' SATRYUNDP-')
+
+    value_hyp = np.array([[list_vocab.index(s) for s in '-S-A--TR-A-P--Y'],
+                          [list_vocab.index(s) for s in 'S-AT-R-A-P-    ']],
+                         dtype=np.int32)
+
+    value_ref = np.array([[list_vocab.index(s) for s in 'SUNDAY'],
+                          [list_vocab.index(s) for s in 'SUNDA ']],
+                         dtype=np.int32)
+
+    # print(optimal_completion_targets_with_blank_v2(value_hyp, value_ref, len(list_vocab)-1))
+
+    # build graph
+    hpy = tf.placeholder(tf.int32)
+    ref = tf.placeholder(tf.int32)
+
+    optimal_distribution_T, optimal_targets_T = OCD_tf(hpy, ref, vocab_size=len(list_vocab))
+    print('graph has built...')
+
+    # run graph
+    with tf.Session() as sess:
+        feed_dict = {hpy: value_hyp,
+                     ref: value_ref}
+        optimal_distribution, optimal_targets = sess.run([optimal_distribution_T, optimal_targets_T], feed_dict)
+        print('optimal_targets: \n', optimal_targets)
+
+        batch_size, time_size, len_target = optimal_targets.shape
+        for i in range(batch_size):
+            print('\nsample {}:\n{}'.format(i, optimal_targets[i]))
+            for t in range(time_size):
+                targets = optimal_targets[i][t]
+                print(', '.join(list_vocab[token] for token in targets[targets>0]))
+            print(optimal_distribution[i].shape)
+
+
 if __name__ == '__main__':
     # test_ED_tf()
     # test_ED_batch()
-    test_OCD()
+    test_OCD_with_blank()

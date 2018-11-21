@@ -45,13 +45,21 @@ class RNAModel(Seq2SeqModel):
             logits, sample_id, _ = decoder(encoded, len_encoded)
 
             if self.is_train:
-                loss = self.rna_loss(
-                    logits=logits,
-                    len_logits=len_encoded,
-                    labels=tensors_input.label_splits[id_gpu],
-                    len_labels=tensors_input.len_label_splits[id_gpu],
-                    encoded=encoded,
-                    len_encoded=len_encoded)
+                if not self.args.OCD_train:
+                    loss = self.rna_loss(
+                        logits=logits,
+                        len_logits=len_encoded,
+                        labels=tensors_input.label_splits[id_gpu],
+                        len_labels=tensors_input.len_label_splits[id_gpu],
+                        encoded=encoded,
+                        len_encoded=len_encoded)
+                else:
+                    loss = self.ocd_loss(
+                        logits=logits,
+                        len_logits=len_encoded,
+                        labels=tensors_input.label_splits[id_gpu],
+                        len_labels=tensors_input.len_label_splits[id_gpu],
+                        sample_id=sample_id)
 
                 with tf.name_scope("gradients"):
                     gradients = self.optimizer.compute_gradients(loss)
@@ -87,6 +95,8 @@ class RNAModel(Seq2SeqModel):
                 default_value=0,
                 validate_indices=True)
             distribution = tf.nn.softmax(logits)
+            # import pdb; pdb.set_trace()
+            # print('hello')
 
         return decoded, tensors_input.shape_batch, distribution
 
@@ -105,7 +115,7 @@ class RNAModel(Seq2SeqModel):
             loss = ctc_loss_batch # utter-level ctc loss
 
         if self.args.model.confidence_penalty:
-            print('using confidence penalty')
+            logging.info('using confidence penalty')
             with tf.name_scope("confidence_penalty"):
                 real_probs = tf.nn.softmax(logits)
                 prevent_nan_constant = tf.constant(1e-10)
@@ -127,6 +137,23 @@ class RNAModel(Seq2SeqModel):
         loss = tf.reduce_mean(loss)
 
         return loss
+
+
+    def ocd_loss(self, logits, len_logits, labels, len_labels, sample_id):
+        from tfModels.OCDLoss import OCD_tf
+
+        optimal_distributions = OCD_tf(
+            hpy=sample_id,
+            ref=labels,
+            vocab_size=self.args.dim_output)
+
+        crossent = tf.nn.softmax_cross_entropy_with_logits_v2(
+            labels=optimal_distributions,
+            logits=logits)
+        mask = tf.sequence_mask(
+            len_logits,
+            dtype=logits.dtype)
+
 
     def rna_decode(self, logits=None, len_logits=None, beam_reserve=False):
         beam_size = self.args.beam_size
