@@ -7,6 +7,7 @@ from utils.audioTools import load_wavfile
 def audio2vector(audio_filename, dim_feature):
     '''
     Turn an audio file into feature representation.
+    16k wav, size 283K -> len 903
     '''
     rate, sig = load_wavfile(audio_filename)
 

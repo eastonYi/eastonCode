@@ -142,7 +142,7 @@ def sample_aligns(distribution, size=1):
         return np.asarray(batch_actions)
 
 
-def ctc_reduce_map(batch_samples, blank=0):
+def ctc_reduce_map(batch_samples, blank_id):
     """
     inputs:
         batch_samples: size x time
@@ -157,12 +157,35 @@ def ctc_reduce_map(batch_samples, blank=0):
         sent = []
         tmp = None
         for token in align:
-            if token != blank and token != tmp:
+            if token != blank_id and token != tmp:
                 sent.append(token)
             tmp = token
         sents.append(sent)
 
-    return padding_list_seqs(sents, dtype=np.int32, value=0)
+    return padding_list_seqs(sents, dtype=np.int32, pad=0)
+
+
+def rna_reduce_map(batch_samples, blank_id):
+    """
+    inputs:
+        batch_samples: size x time
+    return:
+        (padded_samples, mask): (size x max_len, size x max_len)
+                                 max_len <= time
+    """
+    from utils.tools import padding_list_seqs
+
+    sents = []
+    for align in batch_samples:
+        sent = []
+        for token in align:
+            if token == 0:
+                break
+            if token != blank_id:
+                sent.append(token)
+        sents.append(sent)
+
+    return padding_list_seqs(sents, dtype=np.int32, pad=0)
 
 
 def ctc_decode(activaties, beam_size=10, blank=None):

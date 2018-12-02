@@ -2,6 +2,7 @@ import tensorflow as tf
 import logging
 import sys
 from collections import namedtuple
+from tensorflow.python.util import nest
 
 from tensorflow.contrib.layers import fully_connected
 from tensorflow.contrib.seq2seq import sequence_loss
@@ -10,6 +11,8 @@ from tfTools.gradientTools import average_gradients, handle_gradients
 from tfModels.tools import choose_device
 from tfModels.layers import build_cell
 from tfSeq2SeqModels.seq2seqModel import Seq2SeqModel
+from tfSeq2SeqModels.decoders.lm_decoder import LM_Decoder
+
 
 logging.basicConfig(level=logging.DEBUG, format='%(levelname)s(%(filename)s:%(lineno)d): %(message)s')
 
@@ -79,32 +82,25 @@ class LanguageModel(Seq2SeqModel):
                 inputs = tf.nn.dropout(inputs, self.keep_prob)
 
             inputs.set_shape([None, None, self.size_embedding])
-            # cell = build_cell(
-            #     num_units=self.num_cell_units,
-            #     num_layers=self.num_layers,
-            #     is_train=self.is_train,
-            #     dropout=self.dropout,
-            #     cell_type=self.cell_type)
-
-            self.cell = self.make_multi_cell(self.num_layers)
-
-            hidden_output, _ = tf.nn.dynamic_rnn(
-                cell=self.cell,
-                inputs=inputs,
-                sequence_length=tensors_input.len_fea_splits[id_gpu],
-                dtype=tf.float32)
+            decoder = LM_Decoder(self.args, self.is_train)
+            hidden_output, _ = decoder(inputs, tensors_input.len_fea_splits[id_gpu])
+            # self.cell = self.make_multi_cell(self.num_layers)
+            #
+            # hidden_output, _ = tf.nn.dynamic_rnn(
+            #     cell=self.cell,
+            #     inputs=inputs,
+            #     sequence_length=tensors_input.len_fea_splits[id_gpu],
+            #     dtype=tf.float32)
 
             logits = hidden_output
-
-            # logits = fully_connected(
-            #     inputs=hidden_output,
-            #     num_outputs=self.args.dim_output,
-            #     scope='fc')
 
             loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
                 labels=tensors_input.label_splits[id_gpu],
                 logits=logits)
-            loss *= tf.cast(tf.sequence_mask(tensors_input.len_label_splits[id_gpu]), tf.float32)
+            loss *= tf.sequence_mask(
+                tensors_input.len_label_splits[id_gpu],
+                maxlen=tf.shape(logits)[1],
+                dtype=logits.dtype)
 
             if self.is_train:
                 with tf.name_scope("gradients"):
@@ -194,7 +190,7 @@ class LanguageModel(Seq2SeqModel):
     def zero_state(self, batch_size, dtype=tf.float32):
         return self.cell.zero_state(batch_size, dtype=tf.float32)
 
-    def forward(self, input, state, stop_gradient=False):
+    def forward(self, input, state, stop_gradient=False, list_state=False):
         if input.get_shape().ndims <2:
             input = tf.nn.embedding_lookup(self.embed_table, input)
         output, state = tf.contrib.legacy_seq2seq.rnn_decoder(
@@ -202,11 +198,40 @@ class LanguageModel(Seq2SeqModel):
             initial_state=state,
             cell=self.cell)
 
-        output = tf.stop_gradient(output)
+        if stop_gradient:
+            output = tf.stop_gradient(output)
 
-        list_cells = []
-        for cell in state:
-            cell = tf.nn.rnn_cell.LSTMStateTuple(tf.stop_gradient(cell[0]), tf.stop_gradient(cell[1]))
-            list_cells.append(cell)
+        if list_state:
+            list_cells = []
+            for cell in state:
+                cell = tf.nn.rnn_cell.LSTMStateTuple(tf.stop_gradient(cell[0]), tf.stop_gradient(cell[1]))
+                list_cells.append(cell)
+            state = tuple(list_cells)
 
-        return output, tuple(list_cells)
+        return output[0], state
+
+    def sample(self, token_init=None, state_init=None, max_length=50):
+        def step(i, preds, state_decoder):
+            output, state_output = self.forward(preds[:, -1], state_decoder)
+            sampled_id = tf.distributions.Categorical(logits=output).sample()
+            sampled_ids = tf.concat([preds, tf.expand_dims(sampled_id, 1)], axis=1)
+
+            return i+1, sampled_ids, state_output
+
+        num_samples = tf.placeholder(tf.int32, [], name='num_samples')
+
+        if token_init is None:
+            token_init = tf.ones([num_samples, 1], dtype=tf.int32) * self.args.sos_idx
+        if state_init is None:
+            state_init = self.zero_state(num_samples)
+
+        _, sampled, _ = tf.while_loop(
+            cond=lambda i, *_: tf.less(i, max_length),
+            body=step,
+            loop_vars=[0, token_init, state_init],
+            shape_invariants=[tf.TensorShape([]),
+                              tf.TensorShape([None, None]),
+                              nest.map_structure(lambda t: tf.TensorShape(t.shape), state_init)
+                              ]
+            )
+        return sampled, num_samples

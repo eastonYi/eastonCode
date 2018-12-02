@@ -2,15 +2,14 @@ import tensorflow as tf
 import logging
 from tfModels.tools import choose_device
 from tfTools.tfTools import dense_sequence_to_sparse
-from tfSeq2SeqModels.seq2seqModel import Seq2SeqModel
+from tfSeq2SeqModels.rnaModel import RNAModel
 
-
-class RNAModel(Seq2SeqModel):
+class RNALMModel(RNAModel):
     num_Instances = 0
 
     def __init__(self, tensor_global_step, encoder, decoder, is_train, args,
                  batch=None, embed_table_encoder=None, embed_table_decoder=None,
-                 name='RNA_Model'):
+                 name='RNA_LM_Model'):
         self.name = name
         super().__init__(tensor_global_step, encoder, decoder, is_train, args,
                          batch,
@@ -25,22 +24,30 @@ class RNAModel(Seq2SeqModel):
             encoder = self.gen_encoder(
                 is_train=self.is_train,
                 args=self.args)
+
             self.decoder = decoder = self.gen_decoder(
                 is_train=self.is_train,
                 embed_table=self.embed_table_decoder,
                 global_step=self.global_step,
                 args=self.args)
+
+            self.lm_decoder = self.gen_decoder(
+                is_train=self.is_train,
+                embed_table=self.embed_table_decoder,
+                global_step=self.global_step,
+                args=self.args)
+
             self.schedule = decoder.schedule
 
             encoded, len_encoded = encoder(
                 features=tensors_input.feature_splits[id_gpu],
                 len_feas=tensors_input.len_fea_splits[id_gpu])
 
-            # if self.helper_type:
-            #     decoder.build_helper(
-            #         type=self.helper_type,
-            #         encoded=encoded,
-            #         len_encoded=len_encoded)
+            if self.helper_type:
+                decoder.build_helper(
+                    type=self.helper_type,
+                    encoded=encoded,
+                    len_encoded=len_encoded)
 
             logits, decoded, len_decode = decoder(encoded, len_encoded)
 
@@ -62,8 +69,6 @@ class RNAModel(Seq2SeqModel):
                         labels=tensors_input.label_splits[id_gpu],
                         decoded=decoded)
                     loss += ocd_loss
-                else:
-                    ocd_loss = tf.constant(0)
 
                 with tf.name_scope("gradients"):
                     gradients = self.optimizer.compute_gradients(loss)
@@ -172,17 +177,6 @@ class RNAModel(Seq2SeqModel):
         # loss = tf.reduce_sum(crossent * mask, -1)
         # loss = tf.reduce_mean(loss)
 
-        if self.args.model.confidence_penalty:
-            logging.info('using confidence penalty')
-            with tf.name_scope("confidence_penalty"):
-                real_probs = tf.nn.softmax(logits)
-                prevent_nan_constant = tf.constant(1e-10)
-                real_probs += prevent_nan_constant
-
-                neg_entropy = tf.reduce_sum(real_probs * tf.log(real_probs), axis=-1)
-                ls_loss = self.args.model.confidence_penalty * tf.reduce_sum(neg_entropy, axis=-1)
-                loss += ls_loss
-
         return loss
 
 
@@ -210,69 +204,3 @@ class RNAModel(Seq2SeqModel):
                     merge_repeated=False)[0][0])
 
         return decoded_sparse
-
-    def policy_learning(self, logits, len_logits, labels, len_labels, encoded, len_encoded):
-        assert (encoded is not None) and (len_encoded is not None)
-        from tfModels.ctcModel import CTCModel
-        from tfTools.tfTools import pad_to_same
-
-        # with tf.variable_scope('policy_learning'):
-        with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-            decoder_sample = self.gen_decoder(
-                is_train=False,
-                embed_table=self.embed_table_decoder,
-                global_step=self.global_step,
-                args=self.args)
-            decoder_sample.build_helper(
-                type=self.args.model.decoder.sampleHelper,
-                encoded=encoded,
-                len_encoded=len_encoded)
-
-            logits_sample, sample_id_sample, _ = decoder_sample(encoded, len_encoded)
-
-        label_sparse = dense_sequence_to_sparse(labels, len_labels)
-
-        # bias(gready) decode
-        decoded_sparse = self.rna_decode(logits, len_logits)
-        wer_bias = tf.edit_distance(decoded_sparse, label_sparse, normalize=True)
-        wer_bias = tf.stop_gradient(wer_bias)
-
-        # sample decode
-        sample_sparse = self.rna_decode(logits_sample, len_logits)
-        wer = tf.edit_distance(sample_sparse, label_sparse, normalize=True)
-        sample = tf.sparse_to_dense(
-            sparse_indices=sample_sparse.indices,
-            output_shape=sample_sparse.dense_shape,
-            sparse_values=sample_sparse.values,
-            default_value=0,
-            validate_indices=True)
-        len_sample = tf.count_nonzero(sample, -1, dtype=tf.int32)
-        # wer_bias = tf.Print(wer_bias, [len_sample], message='len_sample', summarize=1000)
-        seq_sample, labels = pad_to_same([sample, labels])
-        seq_sample = tf.where(len_sample<1, labels, seq_sample)
-        len_sample = tf.where(len_sample<1, len_labels, len_sample)
-
-        reward = wer_bias - wer
-
-        rl_loss, _ = CTCModel.policy_ctc_loss(
-            logits=logits_sample,
-            len_logits=len_logits,
-            flabels=sample,
-            len_flabels=len_sample,
-            batch_reward=reward,
-            ctc_merge_repeated=False,
-            args=self.args)
-
-        return rl_loss
-
-    def expected_loss(self, logits, len_logits, labels, len_labels):
-        label_sparse = dense_sequence_to_sparse(labels, len_labels)
-        list_decoded_sparse = self.rna_decode(logits, len_logits, beam_reserve=True)
-        list_wer = []
-        for decoded_sparse in list_decoded_sparse:
-            decoded_sparse = tf.to_int32(decoded_sparse)
-            list_wer.append(tf.edit_distance(decoded_sparse, label_sparse, normalize=True))
-        wer_bias = tf.reduce_mean(list_wer)
-        ep_loss = (list_wer - wer_bias)/len(list_wer)
-
-        return ep_loss

@@ -123,17 +123,6 @@ class ASR_scp_DataSet(ASRDataSet):
     def __getitem__(self, idx):
         sample = {}
 
-        sample['feature'] = self.reader.read_utt_data(idx)
-        if self.transform:
-            sample['feature'] = process_raw_feature(sample['feature'], self.args)
-
-        trans = self.id2trans[self.reader.utt_ids[idx]]
-        sample['label'] = np.array(
-            [self.token2idx.get(token, self.token2idx['<unk>'])
-            for token in trans] + self.end_id,
-            dtype=np.int32)
-        sample['id'] = self.reader.utt_ids[idx]
-
         try:
             sample['feature'] = self.reader.read_utt_data(idx)
             if self.transform:
@@ -175,7 +164,8 @@ class LMDataSet(DataSet):
         self.args = args
         self._shuffle = _shuffle
         self.token2idx, self.idx2token = args.token2idx, args.idx2token
-        self.end_id = '<eos>'
+        self.end_id = self.token2idx['<eos>']
+        self.start_id = self.token2idx['<sos>'] if '<sos>' in self.token2idx else self.token2idx['<blk>']
         if _shuffle:
             shuffle(self.list_files)
         self.size_dataset = self.get_size()
@@ -200,8 +190,8 @@ class LMDataSet(DataSet):
                 for line in f:
                     line = line.strip().split()
                     text_ids = [self.token2idx[word] for word in line]
-                    src_ids = text_ids
-                    tar_ids = text_ids[1:] + [self.token2idx['sos']]
+                    src_ids = [self.start_id] + text_ids
+                    tar_ids = text_ids + [self.end_id]
                     sample = {'feature': src_ids, 'label': tar_ids}
                     yield sample
 
@@ -384,7 +374,7 @@ class DataLoader(SimpleDataLoader):
 
         # Clean remain samples.
         for bucket in buckets:
-            if caches[bucket][0]:
+            if caches[bucket][2] > 0:
                 batch = (caches[bucket][0], caches[bucket][1])
                 yield self.padding_list_seq_with_labels(*batch)
                 caches[bucket] = [[], [], 0]
@@ -436,7 +426,6 @@ class DataLoader(SimpleDataLoader):
             if self.queue_sample.empty():
                 if threading.active_count() > 2:
                     logging.info('waitting for sample into the queue...')
-                    print()
                     # logging.info('the activate num threads to prepare data is: {}'.format(threading.active_count()-2))
                     time.sleep(3)
                 elif index_loop < self.num_loops-1:
@@ -453,7 +442,7 @@ class DataLoader(SimpleDataLoader):
 
         # Clean remain samples.
         for bucket in buckets:
-            if caches[bucket][0]:
+            if caches[bucket][2] > 0:
                 batch = (caches[bucket][0], caches[bucket][1])
                 yield self.padding_list_seq_with_labels(*batch)
                 caches[bucket] = [[], [], 0]

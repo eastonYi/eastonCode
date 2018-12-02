@@ -36,8 +36,8 @@ class Decoder(object):
         self.embed_table = embed_table
         self.global_step = global_step
         self.start_warmup_steps = self.args.model.decoder.start_warmup_steps
-        self.sample_prob = self.linear_increase(
-            prob_init=self.args.model.decoder.sample_prob,
+        self.schedule = self.linear_increase(
+            prob_init=self.args.model.decoder.schedule,
             global_step=self.global_step,
             start_warmup_steps=self.args.model.decoder.start_warmup_steps,
             step_increasement=self.args.model.decoder.step_increasement)
@@ -72,7 +72,10 @@ class Decoder(object):
         decoder_input = namedtuple('decoder_input',
             'input_labels, output_labels, len_labels')
 
+        assert self.start_token, self.end_token
+        
         if tensors_input.label_splits:
+            # in the training mode, so that label is provided
             decoder_input.output_labels = tensors_input.label_splits[id_gpu]
             decoder_input.input_labels = right_shift_rows(
                 p=tensors_input.label_splits[id_gpu],
@@ -80,6 +83,7 @@ class Decoder(object):
                 pad=self.start_token)
             decoder_input.len_labels = tensors_input.len_label_splits[id_gpu]
         else:
+            # in the infer mode, so no label is provided
             decoder_input.output_labels = None
             decoder_input.input_labels = None
             decoder_input.len_labels = None
@@ -126,7 +130,7 @@ class Decoder(object):
                 inputs=self.embedding(labels),
                 sequence_length=len_labels,
                 embedding=self.embedding,
-                sampling_probability=self.sample_prob)
+                sampling_probability=self.schedule)
             self.beam_size = 1
         elif type == 'ScheduledArgmaxEmbeddingTrainingHelper':
             helper = helpers.ScheduledArgmaxEmbeddingTrainingHelper(
@@ -134,7 +138,7 @@ class Decoder(object):
                 start_tokens=tf.fill([batch_size], self.start_token),
                 end_token=self.end_token,
                 softmax_temperature=self.args.model.decoder.softmax_temperature,
-                sampling_probability=self.sample_prob)
+                sampling_probability=self.schedule)
             self.beam_size = 1
         elif type == 'ScheduledSelectEmbeddingHelper':
             helper = helpers.ScheduledSelectEmbeddingHelper(
@@ -142,7 +146,7 @@ class Decoder(object):
                 start_tokens=tf.fill([batch_size], self.start_token),
                 end_token=self.end_token,
                 softmax_temperature=self.args.model.decoder.softmax_temperature,
-                sampling_probability=self.sample_prob)
+                sampling_probability=self.schedule)
             self.beam_size = 1
         elif type == 'TrainingHelper':
             helper = tf.contrib.seq2seq.TrainingHelper(
@@ -156,6 +160,14 @@ class Decoder(object):
                 embedding=self.embedding,
                 start_tokens=tf.fill([batch_size], self.start_token),
                 end_token=self.end_token)
+            self.beam_size = 1
+        elif type == 'SampleEmbeddingHelper':
+            helper =tf.contrib.seq2seq.SampleEmbeddingHelper(
+                embedding=self.embedding,
+                start_tokens=tf.fill([batch_size], self.start_token),
+                end_token=self.end_token,
+                # softmax_temperature=self.args.model.decoder.softmax_temperature)
+                softmax_temperature=self.schedule)
             self.beam_size = 1
         elif type == 'BeamSearchDecoder':
             helper = None
@@ -250,8 +262,9 @@ class Decoder(object):
             global_step = tf.to_float(global_step)
             start_warmup_steps = tf.to_float(start_warmup_steps)
             step_increasement = tf.to_float(step_increasement)
-            sample_prob = step_increasement * (global_step-start_warmup_steps) + prob_init
+            schedule = step_increasement * (global_step-start_warmup_steps) + prob_init
 
-            return  tf.maximum(tf.minimum(1.0, sample_prob), 0.0)
+            # return tf.maximum(tf.minimum(1.0, schedule), 0.0)
+            return tf.maximum(tf.minimum(1.3, schedule), prob_init)
         else:
             return tf.to_float(prob_init)

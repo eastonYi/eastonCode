@@ -2,72 +2,69 @@
 contains the general recurrent decoder class'''
 
 import logging
-from abc import ABCMeta, abstractmethod
 import tensorflow as tf
 from tfModels.tensor2tensor import common_attention
-from .decoder import Decoder
+from .lm_decoder import lm_decoder
 from ..tools.utils import shift_right, embedding, residual, multihead_attention, ff_hidden, dense
 from tfModels.tensor2tensor import dcommon_layers
 
 
-class SelfAttentionDecoder(Decoder):
+class SelfAttentionDecoder(lm_decoder):
     '''a speller decoder for the LAS architecture'''
+    def __init__(self, args, is_train, name=None):
+        self.num_cell_units = args.model.decoder.num_cell_units
+        self.num_blocks = args.model.decoder.num_blocks
+        self.attention_dropout_rate = args.model.decoder.attention_dropout_rate if self.is_train else 0.0
+        self.residual_dropout_rate = args.model.decoder.residual_dropout_rate if self.is_train else 0.0
+        self.num_heads = args.model.decoder.num_heads
+        self.beam_size = args.model.decoder.beam_size
+        self._ff_activation = tf.nn.relu
 
-    def _decode(self, encoded, len_encoded):
+    def __call__(self, inputs, len_inputs):
+        with tf.variable_scope(self.name or 'decoder'):
+            output = self.decoder_impl(inputs)
 
-        hidden_units = self.args.model.decoder.num_cell_units
-        num_blocks = self.args.model.decoder.num_blocks
-        size_embedding = self.args.model.decoder.size_embedding
-        dim_output = self.args.dim_output
+        return output, tf.no_op()
 
-        batch_size = tf.shape(len_encoded)[0]
-        initial_ids = tf.fill([batch_size, 1], dim_output-1)
-        initial_logits = tf.zeros([batch_size, 1, dim_output], dtype=tf.float32)
-        scores = tf.zeros([batch_size], dtype=tf.float32)
-        cache = tf.zeros([batch_size, 0, num_blocks, hidden_units])
+    def decoder_impl(self, decoder_input):
+        # Positional Encoding
+        decoder_input += common_attention.add_timing_signal_1d(decoder_input)
+        # Dropout
+        decoder_output = tf.layers.dropout(decoder_input,
+                                           rate=self.residual_dropout_rate,
+                                           training=self.is_train)
+        # Bias for preventing peeping later information
+        self_attention_bias = common_attention.attention_bias_lower_triangle(tf.shape(decoder_input)[1])
 
-        def step(i, preds, scores, cache, logits):
-            decoder_output, cache = self.decoder_with_caching_impl(
-                decoder_input=preds,
-                encoder_output=encoded,
-                decoder_cache=cache)
-            last_logit, _, next_preds, next_scores = self.test_output(decoder_output)
-            next_preds = next_preds[:, None, 0]
-            next_scores = next_scores[:, 0]
+        # Blocks
+        for i in range(self.num_blocks):
+            with tf.variable_scope("block_{}".format(i)):
+                # Multihead Attention (self-attention)
+                decoder_output = residual(decoder_output,
+                                          multihead_attention(
+                                              query_antecedent=decoder_output,
+                                              memory_antecedent=None,
+                                              bias=self_attention_bias,
+                                              total_key_depth=self.hidden_units,
+                                              total_value_depth=self.hidden_units,
+                                              num_heads=self.num_heads,
+                                              dropout_rate=self.attention_dropout_rate,
+                                              output_depth=self.hidden_units,
+                                              name="decoder_self_attention",
+                                              summaries=True),
+                                          dropout_rate=self.residual_dropout_rate)
+                # Feed Forward
+                decoder_output = residual(decoder_output,
+                                          ff_hidden(
+                                              decoder_output,
+                                              hidden_size=4 * self.hidden_units,
+                                              output_size=self.hidden_units,
+                                              activation=self._ff_activation),
+                                          dropout_rate=self.residual_dropout_rate)
 
-            # Update.
-            scores = scores + next_scores
-            preds = tf.concat([preds, next_preds], axis=1)
-            logits = tf.concat([logits, tf.expand_dims(last_logit, axis=1)], axis=1)
+        return decoder_output
 
-            return i+1, preds, scores, cache, logits
-
-        _, preds, scores, cache, logits = tf.while_loop(
-            cond=lambda i, *_: tf.less(i, tf.shape(encoded)[1]),
-            body=step,
-            loop_vars=[0, initial_ids, scores, cache, initial_logits],
-            shape_invariants=[tf.TensorShape([]),
-                              tf.TensorShape([None, None]),
-                              tf.TensorShape([None]),
-                              tf.TensorShape([None, None, None, None]),
-                              tf.TensorShape([None, None, dim_output])],
-            back_prop=True)
-
-        logits = logits[:, 1:, :]
-        # decoded_ids = tf.argmax(logits, -1)
-        decoded_ids = preds
-        not_padding = tf.to_int32(tf.sequence_mask(len_encoded))
-        decoded_ids = tf.multiply(tf.to_int32(decoded_ids), not_padding)
-
-        return logits, decoded_ids, len_encoded
-
-    def decoder_with_caching_impl(self, decoder_input, encoder_output, decoder_cache):
-
-        attention_dropout_rate = self.args.model.decoder.attention_dropout_rate if self.is_train else 0.0
-        residual_dropout_rate = self.args.model.decoder.residual_dropout_rate if self.is_train else 0.0
-        num_blocks = self.args.model.decoder.num_blocks
-        num_heads = self.args.model.decoder.num_heads
-        hidden_units = self.args.model.decoder.num_cell_units
+    def decoder_with_caching_impl(self, decoder_input, decoder_cache):
 
         # decoder_input = tf.expand_dims(decoder_input, -1)
         decoder_output = self.embedding(decoder_input)
@@ -77,12 +74,12 @@ class SelfAttentionDecoder(Decoder):
 
         # Dropout
         decoder_output = tf.layers.dropout(decoder_output,
-                                           rate=residual_dropout_rate,
+                                           rate=self.residual_dropout_rate,
                                            training=self.is_train)
         new_cache = []
 
         # Blocks
-        for i in range(num_blocks):
+        for i in range(self.num_blocks):
             with tf.variable_scope("block_{}".format(i)):
                 # Multihead Attention (self-attention)
                 decoder_output = residual(decoder_output[:, -1:, :],
@@ -90,25 +87,24 @@ class SelfAttentionDecoder(Decoder):
                                               query_antecedent=decoder_output,
                                               memory_antecedent=None,
                                               bias=None,
-                                              total_key_depth=hidden_units,
-                                              total_value_depth=hidden_units,
-                                              num_heads=num_heads,
-                                              dropout_rate=attention_dropout_rate,
+                                              total_key_depth=self.num_cell_units,
+                                              total_value_depth=self.num_cell_units,
+                                              num_heads=self.num_heads,
+                                              dropout_rate=self.attention_dropout_rate,
                                               num_queries=1,
-                                              output_depth=hidden_units,
+                                              output_depth=self.num_cell_units,
                                               name="decoder_self_attention",
                                               summaries=True),
-                                          dropout_rate=residual_dropout_rate)
-                import pdb; pdb.set_trace()
+                                          dropout_rate=self.residual_dropout_rate)
 
                 # Feed Forward
                 decoder_output = residual(decoder_output,
                                           ff_hidden(
                                               decoder_output,
-                                              hidden_size=4 * hidden_units,
-                                              output_size=hidden_units,
+                                              hidden_size=4 * self.num_cell_units,
+                                              output_size=self.num_cell_units,
                                               activation=tf.nn.relu),
-                                          dropout_rate=residual_dropout_rate)
+                                          dropout_rate=self.residual_dropout_rate)
 
                 decoder_output = tf.concat([decoder_cache[:, :, i, :], decoder_output], axis=1)
                 new_cache.append(decoder_output[:, :, None, :])
@@ -118,8 +114,8 @@ class SelfAttentionDecoder(Decoder):
         return decoder_output, new_cache
 
     def test_output(self, decoder_output):
-        beam_size = self.args.beam_size
-        dim_output = self.args.dim_output
+        beam_size = self.beam_size
+        dim_output = self.dim_output
         """During test, we only need the last prediction at each time."""
         last_logits = dense(decoder_output[:, -1], dim_output, use_bias=False,
                             kernel=self.embed_table, name='dst_softmax')
@@ -129,3 +125,55 @@ class SelfAttentionDecoder(Decoder):
         next_preds = tf.to_int32(next_preds)
 
         return last_logits, next_pred, next_preds, next_scores
+
+    def sample(self, token_init=None, max_length=50):
+        """sample in graph."""
+        num_samples = tf.placeholder(tf.int32, [], name='num_samples')
+        scores = tf.zeros([num_samples], dtype=tf.float32)
+        finished = tf.zeros([num_samples], dtype=tf.bool)
+        cache = tf.zeros([num_samples, 0, self._config.num_blocks, self._config.hidden_units])
+
+        def step(i, finished, preds, scores, cache):
+            # Where are we.
+            i += 1
+
+            # Call decoder and get predictions.
+            decoder_output, cache = self.decoder_with_caching(preds, cache)
+
+            _, next_preds, next_scores = self.test_output(decoder_output)
+            next_preds = next_preds[:, None, 0]
+            next_scores = next_scores[:, 0]
+
+            # Update.
+            scores = scores + next_scores
+            preds = tf.concat([preds, next_preds], axis=1)
+
+            # Whether sequences finished.
+            has_eos = tf.equal(next_preds[:, 0], 3)
+            finished = tf.logical_or(finished, has_eos)
+
+            return i, finished, preds, scores, cache
+
+        def not_finished(i, finished, preds, scores, cache):
+            return tf.logical_and(
+                tf.reduce_any(tf.logical_not(finished)),
+                tf.less_equal(
+                    i,
+                    max_length
+                )
+            )
+
+        i, finished, preds, scores, cache = \
+            tf.while_loop(cond=not_finished,
+                          body=step,
+                          loop_vars=[0, finished, token_init, scores, cache],
+                          shape_invariants=[
+                              tf.TensorShape([]),
+                              tf.TensorShape([None]),
+                              tf.TensorShape([None, None]),
+                              tf.TensorShape([None]),
+                              tf.TensorShape([None, None, None, None])],
+                          back_prop=False)
+
+        preds = preds[:, 1:]  # remove <S> flag
+        return preds, num_samples

@@ -11,6 +11,7 @@ from tfModels.coldFusion import cold_fusion
 class RNADecoder(Decoder):
     """language model cold fusion
     """
+
     def __init__(self, args, is_train, global_step, embed_table=None, name=None):
         if args.model.decoder.cold_fusion:
             from tfSeq2SeqModels.languageModel import LanguageModel
@@ -90,7 +91,10 @@ class RNADecoder(Decoder):
                     activation=None,
                     use_bias=False)
 
-            cur_ids = tf.to_int32(tf.argmax(cur_logit, -1))
+            if self.is_train and self.args.model.decoder.sample_decoder:
+                cur_ids = tf.distributions.Categorical(logits=cur_logit).sample()
+            else:
+                cur_ids = tf.to_int32(tf.argmax(cur_logit, -1))
             preds = tf.concat([preds, tf.expand_dims(cur_ids, 1)], axis=1)
             logits = tf.concat([logits, tf.expand_dims(cur_logit, 1)], 1)
 
@@ -108,7 +112,7 @@ class RNADecoder(Decoder):
 
         logits = logits[:, 1:, :]
         preds = preds[:, 1:]
-        not_padding = tf.to_int32(tf.sequence_mask(len_encoded))
+        not_padding = tf.to_int32(tf.sequence_mask(len_encoded, maxlen=tf.shape(encoded)[1]))
         preds = tf.multiply(tf.to_int32(preds), not_padding)
 
         return logits, preds, len_encoded

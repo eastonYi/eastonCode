@@ -52,6 +52,13 @@ if '<eos>' in args.token2idx.keys():
 else:
     args.eos_idx = None
 
+if '<sos>' in args.token2idx.keys():
+    args.sos_idx = args.token2idx['<sos>']
+elif '<blk>' in args.token2idx.keys():
+    args.sos_idx = args.token2idx['<blk>']
+else:
+    args.sos_idx = None
+
 # learning rate
 # Linear Scaling Rule
 if args.peak:
