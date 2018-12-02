@@ -58,9 +58,9 @@ def standardize_images(x):
   """Image standardization on batches (tf.image.per_image_standardization)."""
   with tf.name_scope("standardize_images", [x]):
     x = tf.to_float(x)
-    x_mean = tf.reduce_mean(x, axis=[1, 2, 3], keep_dims=True)
+    x_mean = tf.reduce_mean(x, axis=[1, 2, 3], keepdims=True)
     x_variance = tf.reduce_mean(
-        tf.square(x - x_mean), axis=[1, 2, 3], keep_dims=True)
+        tf.square(x - x_mean), axis=[1, 2, 3], keepdims=True)
     num_pixels = tf.to_float(tf.shape(x)[1] * tf.shape(x)[2] * 3)
     x = (x - x_mean) / tf.maximum(tf.sqrt(x_variance), tf.rsqrt(num_pixels))
     # TODO(lukaszkaiser): remove hack below, needed for greedy decoding for now.
@@ -268,7 +268,7 @@ def conv_internal(conv_fn, inputs, filters, kernel_size, **kwargs):
   # that the `tf.cond` below won't throw an error based on the convolution
   # kernels being too large for the data.
   # inputs._shape = tf.TensorShape([static_shape[0], None, None, static_shape[3]])  # pylint: disable=protected-access
-  inputs.set_shape([static_shape[0], None, None, static_shape[3]]) 
+  inputs.set_shape([static_shape[0], None, None, static_shape[3]])
   if kernel_size[1] == 1 or force2d:
     # Avoiding the cond below can speed up graph and gradient construction.
     return conv2d_kernel(kernel_size, "single")
@@ -332,8 +332,8 @@ def subseparable_conv(inputs, filters, kernel_size, **kwargs):
 
 def layer_norm_compute_python(x, epsilon, scale, bias):
   """Layer norm raw computation."""
-  mean = tf.reduce_mean(x, axis=[-1], keep_dims=True)
-  variance = tf.reduce_mean(tf.square(x - mean), axis=[-1], keep_dims=True)
+  mean = tf.reduce_mean(x, axis=[-1], keepdims=True)
+  variance = tf.reduce_mean(tf.square(x - mean), axis=[-1], keepdims=True)
   norm_x = (x - mean) * tf.rsqrt(variance + epsilon)
   return norm_x * scale + bias
 
@@ -947,7 +947,7 @@ def mask_from_embedding(emb):
   Returns:
     a 0.0/1.0 Tensor with shape [batch, width, height, 1].
   """
-  return weights_nonzero(tf.reduce_sum(tf.abs(emb), axis=3, keep_dims=True))
+  return weights_nonzero(tf.reduce_sum(tf.abs(emb), axis=3, keepdims=True))
 
 
 def mask_leq(target_length, source_length):

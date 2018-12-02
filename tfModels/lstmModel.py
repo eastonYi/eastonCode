@@ -45,13 +45,15 @@ class LSTM_Model(object):
 
         loss_step = []
         tower_grads = []
+        list_debug = []
         # the outer scope is necessary for the where the reuse scope need to be limited whthin
         # or reuse=tf.get_variable_scope().reuse
         for id_gpu, name_gpu in enumerate(self.list_gpu_devices):
             with tf.variable_scope(self.name, reuse=bool(self.__class__.num_Model)):
-                loss, gradients = self.build_single_graph(id_gpu, name_gpu, tensors_input)
+                loss, gradients, debug = self.build_single_graph(id_gpu, name_gpu, tensors_input)
                 loss_step.append(loss)
                 tower_grads.append(gradients)
+                list_debug.append(debug)
 
         # mean the loss
         loss = tf.reduce_mean(loss_step)
@@ -66,7 +68,10 @@ class LSTM_Model(object):
         self.__class__.num_Instances += 1
         logging.info("built {} {} instance(s).".format(self.__class__.num_Instances, self.__class__.__name__))
 
-        return loss, tensors_input.shape_batch, op_optimize
+        # return loss, tensors_input.shape_batch, op_optimize
+        return loss, tensors_input.shape_batch, op_optimize, [x for x in zip(*list_debug)]
+        # return loss, tensors_input.shape_batch, op_optimize, debug
+
 
     def build_infer_graph(self):
         """

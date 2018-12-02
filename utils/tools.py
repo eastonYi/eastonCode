@@ -42,63 +42,80 @@ class check_to_stop(object):
             sys.exit()
 
 
-def padding_list_seqs(sequences, maxlen=None, dtype=np.float32, value=0., masking=True):
-    '''
-    Pads each sequence to the same length of the longest sequence.
-        If maxlen is provided, any sequence longer than maxlen is truncated to
-        maxlen. Truncation happens off either the beginning or the end
-        (default) of the sequence. Supports post-padding (default) and
-        pre-padding.
+# def padding_list_seqs(sequences, maxlen=None, dtype=np.float32, value=0., masking=True):
+#     '''
+#     Pads each sequence to the same length of the longest sequence.
+#         If maxlen is provided, any sequence longer than maxlen is truncated to
+#         maxlen. Truncation happens off either the beginning or the end
+#         (default) of the sequence. Supports post-padding (default) and
+#         pre-padding.
+#
+#         Args:
+#             sequences: list of lists where each element is a sequence
+#             maxlen: int, maximum length
+#             dtype: type to cast the resulting sequence.
+#             value: float, value to pad the sequences to the desired value.
+#             masking: return mask that has the same shape as x; or return length
+#
+#         Returns:
+#             numpy.ndarray: Padded sequences shape = (number_of_sequences, maxlen)
+#             list: original sequence lengths
+#     '''
+#     list_lengths = [len(s) for s in sequences]
+#
+#     size_batch = len(sequences)
+#     if maxlen is None:
+#         maxlen = max(list_lengths)
+#
+#     # take the sample shape from the first non empty sequence
+#     # checking for consistency in the main loop below.
+#     shape_feature = tuple()
+#     for s in sequences:
+#         if len(s) > 0:
+#             shape_feature = np.asarray(s).shape[1:]
+#             break
+#
+#     # a tensor filled with padding value
+#     x = (np.ones((size_batch, maxlen) + shape_feature) * value).astype(dtype)
+#     if masking:
+#         mask = np.zeros(x.shape)
+#     else:
+#         sen_len = []
+#     for idx, s in enumerate(sequences):
+#         if len(s) == 0:
+#             continue  # empty list was found
+#         trunc = s[:maxlen]
+#
+#         # check `trunc` has expected shape
+#         trunc = np.asarray(trunc, dtype=dtype)
+#         if trunc.shape[1:] != shape_feature:
+#             raise ValueError('Shape of sample %s of sequence at position %s is different from expected shape %s' %
+#                              (trunc.shape[1:], idx, shape_feature))
+#
+#         x[idx, :len(trunc)] = trunc
+#         if masking:
+#             mask[idx, :len(trunc)] = 1
+#         else:
+#             sen_len.append(len(trunc))
+#
+#     return x, mask if masking else np.asarray(sen_len, dtype=np.uint8)
+def padding_list_seqs(list_seqs, dtype=np.float32, pad=0.):
+    len_x = [len(s) for s in list_seqs]
 
-        Args:
-            sequences: list of lists where each element is a sequence
-            maxlen: int, maximum length
-            dtype: type to cast the resulting sequence.
-            value: float, value to pad the sequences to the desired value.
-            masking: return mask that has the same shape as x; or return length
+    size_batch = len(list_seqs)
+    maxlen = max(len_x)
 
-        Returns:
-            numpy.ndarray: Padded sequences shape = (number_of_sequences, maxlen)
-            list: original sequence lengths
-    '''
-    list_lengths = [len(s) for s in sequences]
-
-    size_batch = len(sequences)
-    if maxlen is None:
-        maxlen = max(list_lengths)
-
-    # take the sample shape from the first non empty sequence
-    # checking for consistency in the main loop below.
     shape_feature = tuple()
-    for s in sequences:
+    for s in list_seqs:
         if len(s) > 0:
             shape_feature = np.asarray(s).shape[1:]
             break
 
-    # a tensor filled with padding value
-    x = (np.ones((size_batch, maxlen) + shape_feature) * value).astype(dtype)
-    if masking:
-        mask = np.zeros(x.shape)
-    else:
-        sen_len = []
-    for idx, s in enumerate(sequences):
-        if len(s) == 0:
-            continue  # empty list was found
-        trunc = s[:maxlen]
+    x = (np.ones((size_batch, maxlen) + shape_feature) * pad).astype(dtype)
+    for idx, s in enumerate(list_seqs):
+        x[idx, :len(s)] = s
 
-        # check `trunc` has expected shape
-        trunc = np.asarray(trunc, dtype=dtype)
-        if trunc.shape[1:] != shape_feature:
-            raise ValueError('Shape of sample %s of sequence at position %s is different from expected shape %s' %
-                             (trunc.shape[1:], idx, shape_feature))
-
-        x[idx, :len(trunc)] = trunc
-        if masking:
-            mask[idx, :len(trunc)] = 1
-        else:
-            sen_len.append(len(trunc))
-
-    return x, mask if masking else np.asarray(sen_len, dtype=np.uint8)
+    return x, len_x
 
 
 def pad_to_split(batch, num_split):

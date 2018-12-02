@@ -83,14 +83,13 @@ def optimal_completion_targets(hyp, ref):
     _, len_ref = ref.shape
 
     # initialization
-    d = np.zeros((batch_size, len_hyp+1, len_ref+1), dtype=np.int32)
-    d[:, 0, :] = np.tile(np.expand_dims(np.arange(len_ref+1), 0), [batch_size, 1])
-    d[:, :, 0] = np.tile(np.expand_dims(np.arange(len_hyp+1), 0), [batch_size, 1])
-    # m = np.zeros((batch_size, len_hyp+1), dtype=np.uint8)
+    d = np.zeros((batch_size, len_hyp, len_ref), dtype=np.int32)
+    d[:, 0, :] = np.tile(np.expand_dims(np.arange(len_ref), 0), [batch_size, 1])
+    d[:, :, 0] = np.tile(np.expand_dims(np.arange(len_hyp), 0), [batch_size, 1])
 
     # dynamic programming
-    for i in range(1, len_hyp+1):
-        for j in range(1, len_ref+1):
+    for i in range(1, len_hyp):
+        for j in range(1, len_ref):
             sub = d[:, i-1, j-1] + 1
             ins = d[:, i, j-1] + 1
             det = d[:, i-1, j] + 1
@@ -98,7 +97,6 @@ def optimal_completion_targets(hyp, ref):
                 hyp[:, i-1] == ref[:, j-1],
                 d[:, i-1, j-1],
                 np.amin(np.stack([sub, ins, det]), 0))
-        # m[:, i] = np.amin(d[:, i, :], 0)
     m = np.amin(d, -1)
     mask_min = np.equal(d, np.stack([m]*d.shape[-1], -1)).astype(np.int32)
 
@@ -203,7 +201,38 @@ def optimal_completion_targets_with_blank_v2(hyp, ref, blank_id):
 
     return mask_min.astype(np.int32)
 
-def OCD_tf(hyp, ref, vocab_size):
+
+def OCD_loss(hyp, ref, vocab_size):
+    """
+    make sure the padding id is 0!
+    ref: * * * * <eos> <pad> <pad>
+    """
+    mask_min = tf.py_func(optimal_completion_targets, [hyp, ref], tf.int32)
+
+    tiled_ref = tf.tile(tf.expand_dims(ref, 1), [1, tf.shape(mask_min)[1], 1])
+    optimal_targets = tiled_ref * mask_min
+
+    # optimal_targets = tf.Print(optimal_targets, [optimal_targets[0]], message='optimal_targets: ', summarize=1000)
+    # optimal_targets = tf.Print(optimal_targets, [ref[0]], message='ref: ', summarize=1000)
+    # optimal_targets = tf.Print(optimal_targets, [hyp[0]], message='hyp: ', summarize=1000)
+    # labels: batch x time x vocab
+    # we do not need the optimal targrts when the prefix is complete.
+    labels = tf.one_hot(optimal_targets, vocab_size)
+    optimal_distribution = tf.reduce_sum(labels, -2)
+
+    # ignore the label 0 (pad id) in labels
+    batch_size = tf.shape(optimal_distribution)[0]
+    time_size = tf.shape(optimal_distribution)[1]
+    optimal_distribution = tf.concat([tf.zeros(shape=[batch_size, time_size, 1], dtype=tf.float32),
+                                      optimal_distribution[:, :, 1:]], -1)
+    # average over all the optimal targets
+    optimal_distribution = tf.nn.softmax(optimal_distribution*1024)
+
+    return optimal_distribution, optimal_targets
+    # return optimal_distribution
+
+
+def OCD_with_blank_loss(hyp, ref, vocab_size):
     """
     make sure the padding id is 0!
     """
@@ -233,7 +262,7 @@ def OCD_tf(hyp, ref, vocab_size):
     optimal_distribution = tf.nn.softmax(optimal_distribution*1024)
 
     # return optimal_distribution, optimal_targets
-    return optimal_distribution
+    return optimal_distribution, optimal_targets
 
 
 def test_ED_tf():
@@ -273,7 +302,7 @@ def test_ED_batch():
         print(distance)
 
 
-def test_OCD():
+def test_OCD_loss():
     """
     the pad will be removed from optimal target in the end ,and we do not need
     to care about the length of hyp and ref since we will finally mask the loss.
@@ -306,6 +335,7 @@ def test_OCD():
      [ 0  6  7  8  2  0  0]
      [ 0  0  0  0  0  5  0]
      [ 0  0  0  0  0  5 10]
+     [ 0  0  0  0  0  0 10]
      [ 0  0  0  0  0  0 10]]
     S
     U
@@ -313,7 +343,8 @@ def test_OCD():
     U, N, D
     U, N, D, A
     Y
-    Y, <blk>
+    Y, -
+    -
     [[ 0.    1.    0.    0.    0.    0.    0.    0.    0.    0.    0.]
      [ 0.    0.    0.    0.    0.    0.    1.    0.    0.    0.    0.]
      [ 0.    0.    0.    0.    0.    0.    0.5   0.5   0.    0.    0.]
@@ -336,8 +367,9 @@ def test_OCD():
     U, N
     U, N, D
     U, N, D, A
-    <blk>
-    <blk>, <blk>
+    -
+    -
+
     [[ 0.    1.    0.    0.    0.    0.    0.    0.    0.    0.    0.]
      [ 0.    0.    0.    0.    0.    0.    1.    0.    0.    0.    0.]
      [ 0.    0.    0.    0.    0.    0.    0.5   0.5   0.    0.    0.]
@@ -347,14 +379,14 @@ def test_OCD():
      [ 0.    0.    0.    0.    0.    0.    0.    0.    0.    0.    1.]]
 
     """
-    list_vocab = list('_SATRYUNDP')+['<blk>']
+    list_vocab = list('_SATRYUNDP-')
 
-    value_hyp = np.array([[list_vocab.index(s) for s in 'SATRAPY'],
-                          [list_vocab.index(s) for s in 'SATRAP_']],
+    value_hyp = np.array([[list_vocab.index(s) for s in 'SATRAPY-'],
+                          [list_vocab.index(s) for s in 'SATRAP-_']],
                          dtype=np.int32)
 
-    value_ref = np.array([[list_vocab.index(s) for s in 'SUNDAY'],
-                          [list_vocab.index(s) for s in 'SUNDA_']],
+    value_ref = np.array([[list_vocab.index(s) for s in 'SUNDAY-'],
+                          [list_vocab.index(s) for s in 'SUNDA-_']],
                          dtype=np.int32)
 
     # print(optimal_completion_targets(value_hyp, value_ref))
@@ -363,7 +395,7 @@ def test_OCD():
     hpy = tf.placeholder(tf.int32)
     ref = tf.placeholder(tf.int32)
 
-    optimal_distribution_T, optimal_targets_T = OCD_tf(hpy, ref, vocab_size=len(list_vocab))
+    optimal_distribution_T, optimal_targets_T = OCD_loss(hpy, ref, vocab_size=len(list_vocab))
     print('graph has built...')
 
     # run graph
@@ -371,18 +403,18 @@ def test_OCD():
         feed_dict = {hpy: value_hyp,
                      ref: value_ref}
         optimal_distribution, optimal_targets = sess.run([optimal_distribution_T, optimal_targets_T], feed_dict)
-        # print(optimal_targets)
+        print(optimal_targets)
 
         batch_size, time_size, len_target = optimal_targets.shape
         for i in range(batch_size):
             print('\nsample {}:\n{}'.format(i, optimal_targets[i]))
-            for t in range(time_size-1):
+            for t in range(time_size):
                 targets = optimal_targets[i][t]
                 print(', '.join(list_vocab[token] for token in targets[targets>0]))
             print(optimal_distribution[i])
 
 
-def test_OCD_with_blank():
+def test_OCD_with_blank_loss():
     """
     optimal_targets:
      [[[ 1  0  0  0  0  0 10]
@@ -499,7 +531,7 @@ def test_OCD_with_blank():
     hpy = tf.placeholder(tf.int32)
     ref = tf.placeholder(tf.int32)
 
-    optimal_distribution_T, optimal_targets_T = OCD_tf(hpy, ref, vocab_size=len(list_vocab))
+    optimal_distribution_T, optimal_targets_T = OCD_with_blank_loss(hpy, ref, vocab_size=len(list_vocab))
     print('graph has built...')
 
     # run graph
@@ -521,4 +553,5 @@ def test_OCD_with_blank():
 if __name__ == '__main__':
     # test_ED_tf()
     # test_ED_batch()
-    test_OCD_with_blank()
+    test_OCD_loss()
+    # test_OCD_with_blank_loss()

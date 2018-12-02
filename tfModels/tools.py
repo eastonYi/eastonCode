@@ -15,27 +15,39 @@ def size_variables():
 
 
 def smoothing_cross_entropy(logits, labels, vocab_size, confidence):
-  """Cross entropy with label smoothing to limit over-confidence."""
-  with tf.name_scope("smoothing_cross_entropy", [logits, labels]):
-    # Low confidence is given to all non-true labels, uniformly.
-    low_confidence = (1.0 - confidence) / tf.to_float(vocab_size - 1)
-    # Normalizing constant is the best cross-entropy value with soft targets.
-    # We subtract it just for readability, makes no difference on learning.
-    normalizing = -(confidence * tf.log(confidence) + tf.to_float(
-        vocab_size - 1) * low_confidence * tf.log(low_confidence + 1e-20))
-    # Soft targets.
-    soft_targets = tf.one_hot(
-        tf.cast(labels, tf.int32),
-        depth=vocab_size,
-        on_value=confidence,
-        off_value=low_confidence)
-    try:
-        xentropy = tf.nn.softmax_cross_entropy_with_logits_v2(
-            logits=logits, labels=soft_targets)
-    except:
-        xentropy = tf.nn.softmax_cross_entropy_with_logits(
-            logits=logits, labels=soft_targets)
+    """Cross entropy with label smoothing to limit over-confidence."""
+    with tf.name_scope("smoothing_cross_entropy"):
+        # Low confidence is given to all non-true labels, uniformly.
+        low_confidence = (1.0 - confidence) / tf.to_float(vocab_size - 1)
+        # Normalizing constant is the best cross-entropy value with soft targets.
+        # We subtract it just for readability, makes no difference on learning.
+        normalizing = -(confidence * tf.log(confidence) + tf.to_float(
+            vocab_size - 1) * low_confidence * tf.log(low_confidence + 1e-20))
+        # Soft targets.
+        soft_targets = tf.one_hot(
+            tf.cast(labels, tf.int32),
+            depth=vocab_size,
+            on_value=confidence,
+            off_value=low_confidence)
+        try:
+            xentropy = tf.nn.softmax_cross_entropy_with_logits_v2(
+                logits=logits, labels=soft_targets)
+        except:
+            xentropy = tf.nn.softmax_cross_entropy_with_logits(
+                logits=logits, labels=soft_targets)
     return xentropy - normalizing
+
+
+def smoothing_distribution(distributions, vocab_size, confidence):
+    share = 1-confidence
+    num_targets = tf.reduce_sum(tf.to_int32(distributions>0.0), -1)
+    num_zeros = vocab_size - num_targets
+    reduce = tf.tile(tf.expand_dims(share/tf.to_float(num_targets), -1), [1, 1, vocab_size])
+    add = tf.tile(tf.expand_dims(share/tf.to_float(num_zeros), -1), [1, 1, vocab_size])
+    distribution_smoothed = (distributions-reduce)*tf.to_float(distributions>0) +\
+            add*tf.to_float(distributions<1e-6)
+
+    return distribution_smoothed
 
 #============================================================================
 #  building model

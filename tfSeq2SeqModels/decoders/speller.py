@@ -26,19 +26,20 @@ class Speller(RNNDecoder):
             an RNNCell object'''
 
         num_layers = self.args.model.decoder.num_layers
-        num_cell_project = self.args.model.decoder.num_cell_project
-        dropout = self.args.model.decoder.dropout
-        forget_bias = self.args.model.decoder.forget_bias
-        cell_type = self.args.model.decoder.cell_type
+        # num_cell_project = self.args.model.decoder.num_cell_project
+        # dropout = self.args.model.decoder.dropout
+        # forget_bias = self.args.model.decoder.forget_bias
+        # cell_type = self.args.model.decoder.cell_type
 
-        cell = build_cell(
-            num_units=num_cell_units,
-            num_layers=num_layers,
-            is_train=self.is_train,
-            dropout=dropout,
-            forget_bias=forget_bias,
-            cell_type=cell_type,
-            dim_project=num_cell_project)
+        # cell = build_cell(
+        #     num_units=num_cell_units,
+        #     num_layers=num_layers,
+        #     is_train=self.is_train,
+        #     dropout=dropout,
+        #     forget_bias=forget_bias,
+        #     cell_type=cell_type,
+        #     dim_project=num_cell_project)
+        cell = self.make_multi_cell(num_cell_units, num_layers)
         self.zero_state = cell.zero_state
 
         #create the attention mechanism
@@ -62,6 +63,25 @@ class Speller(RNNDecoder):
             output_size=self.args.dim_output)
 
         return cell
+
+    def make_cell(self, num_cell_units):
+        dropout = self.args.model.decoder.dropout
+        keep_prob = 1-dropout
+        cell = tf.contrib.rnn.LSTMBlockCell(num_cell_units, forget_bias=0.0)
+        if self.is_train and keep_prob < 1:
+            cell = tf.contrib.rnn.DropoutWrapper(
+                cell, output_keep_prob=keep_prob)
+        return cell
+
+    def make_multi_cell(self, num_cell_units, num_layers):
+        list_cells = [self.make_cell(num_cell_units) for _ in range(num_layers-1)]
+        cell_proj = tf.contrib.rnn.OutputProjectionWrapper(
+            cell=self.make_cell(num_cell_units),
+            output_size=self.args.dim_output)
+        list_cells.append(cell_proj)
+        multi_cell = tf.contrib.rnn.MultiRNNCell(list_cells, state_is_tuple=True)
+
+        return multi_cell
 
     def zero_state(self):
 

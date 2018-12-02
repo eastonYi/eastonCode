@@ -25,6 +25,7 @@ class Seq2SeqModel(LSTM_Model):
 
         Args:
         '''
+        self.name = name
         self.gen_encoder = encoder # encoder class
         self.gen_decoder = decoder # decoder class
         self.embed_table_encoder = self.get_embedding(
@@ -62,7 +63,7 @@ class Seq2SeqModel(LSTM_Model):
                 embed_table=self.embed_table_decoder,
                 global_step=self.global_step,
                 args=self.args)
-            self.sample_prob = decoder.sample_prob
+            self.schedule = decoder.schedule
 
             encoded, len_encoded = encoder(
                 features=tensors_input.feature_splits[id_gpu],
@@ -78,13 +79,22 @@ class Seq2SeqModel(LSTM_Model):
                 len_labels=decoder_input.len_labels,
                 batch_size=tf.shape(len_encoded)[0])
 
-            logits, sample_id, _ = decoder(encoded, len_encoded)
+            logits, sample_id, len_decode = decoder(encoded, len_encoded)
 
             if self.is_train:
-                loss = self.ce_loss(
-                    logits=logits,
-                    labels=decoder_input.output_labels[:, :tf.shape(logits)[1]],
-                    len_labels=decoder_input.len_labels)
+                if self.args.OCD_train:
+                    # logits = tf.Print(logits, [tensors_input.len_label_splits[id_gpu][0]], message='label length: ', summarize=1000)
+                    # logits = tf.Print(logits, [tf.shape(logits[0])], message='logits shape: ', summarize=1000)
+                    loss, (optimal_targets, optimal_distributions) = self.ocd_loss(
+                        logits=logits,
+                        len_logits=len_decode,
+                        labels=tensors_input.label_splits[id_gpu],
+                        sample_id=sample_id)
+                else:
+                    loss = self.ce_loss(
+                        logits=logits,
+                        labels=decoder_input.output_labels[:, :tf.shape(logits)[1]],
+                        len_labels=decoder_input.len_labels)
 
                 with tf.name_scope("gradients"):
                     gradients = self.optimizer.compute_gradients(loss)
@@ -94,7 +104,9 @@ class Seq2SeqModel(LSTM_Model):
             self.__class__.__name__, name_gpu, self.__class__.num_Model))
 
         if self.is_train:
-            return loss, gradients
+            # no_op is preserved for debug info to pass
+            return loss, gradients, tf.no_op()
+            # return loss, gradients, [optimal_targets, len_decode, sample_id, tensors_input.label_splits[id_gpu], optimal_distributions]
         else:
             return logits, len_encoded, sample_id
 
@@ -122,6 +134,7 @@ class Seq2SeqModel(LSTM_Model):
                 labels=labels,
                 vocab_size=self.args.dim_output,
                 confidence=self.args.model.label_smoothing_confidence)
+
             mask = tf.sequence_mask(
                 len_labels,
                 dtype=logits.dtype)
@@ -129,6 +142,34 @@ class Seq2SeqModel(LSTM_Model):
             loss = tf.reduce_sum(crossent * mask)/tf.reduce_sum(mask)
 
         return loss
+
+    def ocd_loss(self, logits, len_logits, labels, sample_id):
+        from tfModels.OCDLoss import OCD_loss
+        from tfModels.tools import smoothing_distribution
+
+        optimal_distributions, optimal_targets = OCD_loss(
+            hyp=sample_id,
+            ref=labels,
+            vocab_size=self.args.dim_output)
+
+        if self.args.model.decoder.label_smoothing_confidence <1:
+            optimal_distributions = smoothing_distribution(
+                distributions=optimal_distributions,
+                vocab_size=self.args.dim_output,
+                confidence=self.args.model.decoder.label_smoothing_confidence)
+
+        crossent = tf.nn.softmax_cross_entropy_with_logits_v2(
+            labels=optimal_distributions,
+            logits=logits)
+
+        pad_mask = tf.sequence_mask(
+            len_logits,
+            maxlen=tf.shape(logits)[1],
+            dtype=logits.dtype)
+
+        loss = tf.reduce_sum(crossent * pad_mask)/tf.reduce_sum(pad_mask)
+
+        return loss, [optimal_targets, optimal_distributions]
 
     def build_idx_input(self):
         """
@@ -164,7 +205,7 @@ class Seq2SeqModel(LSTM_Model):
         during the infer, we only get the decoded result and not use label
         """
         tensors_input = namedtuple('tensors_input',
-            'feature_splits, len_fea_splits, shape_batch')
+            'feature_splits, label_splits, len_fea_splits, len_label_splits, shape_batch')
 
         with tf.device(self.center_device):
             with tf.name_scope("inputs"):
@@ -174,6 +215,8 @@ class Seq2SeqModel(LSTM_Model):
                 # split input data alone batch axis to gpus
                 tensors_input.feature_splits = tf.split(batch_features, self.num_gpus, name="feature_splits")
                 tensors_input.len_fea_splits = tf.split(batch_fea_lens, self.num_gpus, name="len_fea_splits")
+                tensors_input.label_splits = None
+                tensors_input.len_label_splits = None
 
         tensors_input.shape_batch = tf.shape(batch_features)
 
