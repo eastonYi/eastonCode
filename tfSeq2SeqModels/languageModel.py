@@ -11,7 +11,6 @@ from tfTools.gradientTools import average_gradients, handle_gradients
 from tfModels.tools import choose_device
 from tfModels.layers import build_cell
 from tfSeq2SeqModels.seq2seqModel import Seq2SeqModel
-from tfSeq2SeqModels.decoders.lm_decoder import LM_Decoder
 
 
 logging.basicConfig(level=logging.DEBUG, format='%(levelname)s(%(filename)s:%(lineno)d): %(message)s')
@@ -23,9 +22,9 @@ class LanguageModel(Seq2SeqModel):
     Extrinsic (task-based) Evaluation: Word Error Rate
     """
 
-    def __init__(self, tensor_global_step, encoder, decoder, is_train, args,
-                 embed_table_encoder=None, embed_table_decoder=None,
+    def __init__(self, tensor_global_step, is_train, args, embed_table_decoder=None,
                  name='LanguageModel'):
+        self.type = args.model.decoder.type
         self.num_cell_units = args.model.decoder.num_cell_units
         self.dropout = args.model.decoder.dropout
         self.keep_prob = 1 - args.model.decoder.dropout
@@ -38,7 +37,7 @@ class LanguageModel(Seq2SeqModel):
         self.name = name
         self.initializer = tf.random_uniform_initializer(-self.init_scale, self.init_scale)
 
-        super().__init__(tensor_global_step, None, decoder, is_train, args,
+        super().__init__(tensor_global_step, None, None, is_train, args,
                          batch=None,
                          embed_table_encoder=None,
                          embed_table_decoder=embed_table_decoder,
@@ -78,12 +77,17 @@ class LanguageModel(Seq2SeqModel):
         with tf.device(lambda op: choose_device(op, name_gpu, self.center_device)):
 
             inputs = tensors_input.feature_splits[id_gpu]
-            if self.is_train:
-                inputs = tf.nn.dropout(inputs, self.keep_prob)
-
+            len_inputs = tensors_input.len_fea_splits[id_gpu]
             inputs.set_shape([None, None, self.size_embedding])
-            decoder = LM_Decoder(self.args, self.is_train)
-            hidden_output, _ = decoder(inputs, tensors_input.len_fea_splits[id_gpu])
+
+            if self.type == 'LSTM':
+                from tfSeq2SeqModels.decoders.lm_decoder import LM_Decoder
+                decoder = LM_Decoder(self.args, self.is_train)
+                hidden_output, _ = decoder(inputs, len_inputs)
+            elif self.type == 'SelfAttention':
+                from tfSeq2SeqModels.decoders.self_attention_lm_decoder import SelfAttentionDecoder
+                decoder = SelfAttentionDecoder(self.args, self.is_train)
+                hidden_output = decoder(inputs, len_inputs)
             # self.cell = self.make_multi_cell(self.num_layers)
             #
             # hidden_output, _ = tf.nn.dynamic_rnn(

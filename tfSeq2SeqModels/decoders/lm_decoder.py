@@ -48,6 +48,10 @@ class LM_Decoder(object):
                 of [batch_size x ... ] tensors
         '''
         with tf.variable_scope(self.name or 'decoder'):
+
+            if self.is_train and self.keep_prob < 1.0:
+                inputs = tf.nn.dropout(inputs, self.keep_prob)
+
             hidden_output, final_state = tf.nn.dynamic_rnn(
                 cell=self.cell,
                 inputs=inputs,
