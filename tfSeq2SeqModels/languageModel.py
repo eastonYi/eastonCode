@@ -26,8 +26,8 @@ class LanguageModel(Seq2SeqModel):
                  name='LanguageModel'):
         self.type = args.model.decoder.type
         self.num_cell_units = args.model.decoder.num_cell_units
-        self.dropout = args.model.decoder.dropout
-        self.keep_prob = 1 - args.model.decoder.dropout
+        # self.dropout = args.model.decoder.dropout
+        # self.keep_prob = 1 - args.model.decoder.dropout
         self.cell_type = args.model.decoder.cell_type
         self.num_layers = args.model.decoder.num_layers
         self.init_scale = args.model.decoder.init_scale
@@ -62,11 +62,12 @@ class LanguageModel(Seq2SeqModel):
 
         loss = tf.reduce_sum(loss_step)
         # merge gradients, update current model
-        with tf.device(self.center_device):
-            # computation relevant to gradient
-            averaged_grads = average_gradients(tower_grads)
-            handled_grads = handle_gradients(averaged_grads, self.args)
-            op_optimize = self.optimizer.apply_gradients(handled_grads, self.global_step)
+        with tf.variable_scope('training'):
+            with tf.device(self.center_device):
+                # computation relevant to gradient
+                averaged_grads = average_gradients(tower_grads)
+                handled_grads = handle_gradients(averaged_grads, self.args)
+                op_optimize = self.optimizer.apply_gradients(handled_grads, self.global_step)
 
         self.__class__.num_Instances += 1
         logging.info("built {} {} instance(s).".format(self.__class__.num_Instances, self.__class__.__name__))
@@ -86,7 +87,9 @@ class LanguageModel(Seq2SeqModel):
                 hidden_output, _ = decoder(inputs, len_inputs)
             elif self.type == 'SelfAttention':
                 from tfSeq2SeqModels.decoders.self_attention_lm_decoder import SelfAttentionDecoder
-                decoder = SelfAttentionDecoder(self.args, self.is_train)
+                decoder = SelfAttentionDecoder(self.args, self.is_train, self.embed_table_decoder)
+                # from tfSeq2SeqModels.decoders.self_attention_lm_decoder_lh import SelfAttentionDecoder_lh
+                # decoder = SelfAttentionDecoder_lh(self.args, self.is_train, self.embed_table_decoder)
                 hidden_output = decoder(inputs, len_inputs)
             # self.cell = self.make_multi_cell(self.num_layers)
             #
@@ -105,6 +108,21 @@ class LanguageModel(Seq2SeqModel):
                 tensors_input.len_label_splits[id_gpu],
                 maxlen=tf.shape(logits)[1],
                 dtype=logits.dtype)
+
+            # from tfModels.tensor2tensor.common_layers import padded_cross_entropy, weights_nonzero
+            #
+            # mask = tf.sequence_mask(
+            #     tensors_input.len_label_splits[id_gpu],
+            #     maxlen=tf.shape(logits)[1],
+            #     dtype=logits.dtype)
+            # batch_mask = tf.tile(tf.expand_dims(mask, -1), [1, 1, tf.shape(logits)[-1]])
+            # loss, _ = padded_cross_entropy(
+            #     logits* batch_mask,
+            #     tensors_input.label_splits[id_gpu],
+            #     0.0,
+            #     weights_fn=weights_nonzero,
+            #     reduce_sum=False)
+            # loss = tf.Print(loss, [weight_sum], message='weight_sum', summarize=1000)
 
             if self.is_train:
                 with tf.name_scope("gradients"):
@@ -181,7 +199,7 @@ class LanguageModel(Seq2SeqModel):
                 batch_ref_lens = tf.placeholder(tf.int32, [None], name='input_ref_lens')
                 self.list_pl = [batch_src, batch_ref, batch_src_lens, batch_ref_lens]
                 # split input data alone batch axis to gpus
-                self.embed_table = self.embed_table_encoder if self.embed_table_encoder else self.embed_table_decoder
+                self.embed_table = self.embed_table_decoder
                 batch_features = tf.nn.embedding_lookup(self.embed_table, batch_src)
                 tensors_input.feature_splits = tf.split(batch_features, self.num_gpus, name="feature_splits")
                 tensors_input.label_splits = tf.split(batch_ref, self.num_gpus, name="label_splits")

@@ -5,43 +5,40 @@ import logging
 import tensorflow as tf
 from tfModels.tensor2tensor import common_attention
 from .lm_decoder import LM_Decoder
-from ..tools.utils import shift_right, embedding, residual, multihead_attention, ff_hidden, dense
+from ..tools.utils import shift_right, embedding, residual_lh, multihead_attention_lh, ff_hidden_lh, dense
 from tfModels.tensor2tensor import dcommon_layers
 
 
-class SelfAttentionDecoder(LM_Decoder):
+class SelfAttentionDecoder_lh(LM_Decoder):
     '''a speller decoder for the LAS architecture'''
-    def __init__(self, args, is_train, embedding_table=None, name=None):
+    def __init__(self, args, is_train, embedding_table, name=None):
         self.num_cell_units = args.model.decoder.num_cell_units
         self.num_blocks = args.model.decoder.num_blocks
         self.attention_dropout_rate = args.model.decoder.attention_dropout_rate if is_train else 0.0
         self.residual_dropout_rate = args.model.decoder.residual_dropout_rate if is_train else 0.0
         self.num_heads = args.model.decoder.num_heads
-        self.share_embedding = args.model.decoder.share_embedding
-        self.embedding_table = embedding_table
         # self.beam_size = args.model.decoder.beam_size
         self.dim_output = args.dim_output
         self._ff_activation = tf.nn.relu
+        self.share_embedding = True
+        self.embedding_table = embedding_table
         self.is_train = is_train
         self.name = name
         self.args = args
 
     def __call__(self, inputs, len_inputs):
-        with tf.variable_scope(self.name or 'decoder'):
+        with tf.variable_scope(self.name or 'lm_sa'):
             output = self.decoder_impl(inputs)
-            if self.embedding_table is None or (not self.share_embedding):
+            if self.embedding_table is None and (not self.share_embedding):
                 logits = tf.layers.dense(
                     inputs=output,
                     units=self.dim_output,
+                    activation=None,
                     use_bias=False)
             else:
-                kernel = self.embedding_table
-                logits = dense(
-                    inputs=output,
-                    output_size=self.dim_output,
-                    units=self.dim_output,
-                    kernel=kernel,
-                    use_bias=False)
+                residual_lh(output, )
+                logits = dense(output, self.dim_output,
+                               kernel=self.embedding_table, use_bias=False)
 
         return logits
 
@@ -58,24 +55,25 @@ class SelfAttentionDecoder(LM_Decoder):
         # Blocks
         for i in range(self.num_blocks):
             # print('here!!!!!!!{}'.format(i))
-            with tf.variable_scope("block_{}".format(i)):
+            with tf.variable_scope("layer_{}".format(i)):
                 # Multihead Attention (self-attention)
-                decoder_output = residual(decoder_output,
-                                          multihead_attention(
-                                              query_antecedent=decoder_output,
-                                              memory_antecedent=None,
-                                              bias=self_attention_bias,
-                                              total_key_depth=self.num_cell_units,
-                                              total_value_depth=self.num_cell_units,
-                                              num_heads=self.num_heads,
-                                              dropout_rate=self.attention_dropout_rate,
-                                              output_depth=self.num_cell_units,
-                                              name="decoder_self_attention",
-                                              summaries=True),
-                                          dropout_rate=self.residual_dropout_rate)
+                with tf.variable_scope("self_attention"):
+                    decoder_output = residual_lh(decoder_output,
+                                              multihead_attention_lh(
+                                                  query_antecedent=decoder_output,
+                                                  memory_antecedent=None,
+                                                  bias=self_attention_bias,
+                                                  total_key_depth=self.num_cell_units,
+                                                  total_value_depth=self.num_cell_units,
+                                                  num_heads=self.num_heads,
+                                                  dropout_rate=self.attention_dropout_rate,
+                                                  output_depth=self.num_cell_units,
+                                                  name="multihead_attention",
+                                                  summaries=True),
+                                              dropout_rate=self.residual_dropout_rate)
                 # Feed Forward
-                decoder_output = residual(decoder_output,
-                                          ff_hidden(
+                decoder_output = residual_lh(decoder_output,
+                                          ff_hidden_lh(
                                               decoder_output,
                                               hidden_size=4 * self.num_cell_units,
                                               output_size=self.num_cell_units,
@@ -100,10 +98,10 @@ class SelfAttentionDecoder(LM_Decoder):
 
         # Blocks
         for i in range(self.num_blocks):
-            with tf.variable_scope("block_{}".format(i)):
+            with tf.variable_scope("layer_{}".format(i)):
                 # Multihead Attention (self-attention)
-                decoder_output = residual(decoder_output[:, -1:, :],
-                                          multihead_attention(
+                decoder_output = residual_lh(decoder_output[:, -1:, :],
+                                          multihead_attention_lh(
                                               query_antecedent=decoder_output,
                                               memory_antecedent=None,
                                               bias=None,
@@ -113,13 +111,13 @@ class SelfAttentionDecoder(LM_Decoder):
                                               dropout_rate=self.attention_dropout_rate,
                                               num_queries=1,
                                               output_depth=self.num_cell_units,
-                                              name="decoder_self_attention",
+                                              name="self_attention",
                                               summaries=True),
                                           dropout_rate=self.residual_dropout_rate)
 
                 # Feed Forward
-                decoder_output = residual(decoder_output,
-                                          ff_hidden(
+                decoder_output = residual_lh(decoder_output,
+                                          ff_hidden_lh(
                                               decoder_output,
                                               hidden_size=4 * self.num_cell_units,
                                               output_size=self.num_cell_units,

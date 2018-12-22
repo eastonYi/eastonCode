@@ -14,6 +14,7 @@ from collections import namedtuple
 from tfModels.lstmModel import LSTM_Model
 from tfModels.tools import choose_device, smoothing_cross_entropy
 
+
 class Seq2SeqModel(LSTM_Model):
     '''a general class for an encoder decoder system
     '''
@@ -31,13 +32,11 @@ class Seq2SeqModel(LSTM_Model):
         self.embed_table_encoder = self.get_embedding(
             embed_table=embed_table_encoder,
             size_input=args.model.encoder.size_vocab,
-            size_embedding=args.model.encoder.size_embedding,
-            args=args)
+            size_embedding=args.model.encoder.size_embedding)
         self.embed_table_decoder = self.get_embedding(
             embed_table=embed_table_decoder,
             size_input=args.dim_output,
-            size_embedding=args.model.decoder.size_embedding,
-            args=args)
+            size_embedding=args.model.decoder.size_embedding)
         if embed_table_encoder or (not encoder):
             """
             embed_table_encoder: MT
@@ -245,7 +244,7 @@ class Seq2SeqModel(LSTM_Model):
 
         return tensors_input
 
-    def get_embedding(self, embed_table, size_input, size_embedding, args):
+    def get_embedding(self, embed_table, size_input, size_embedding):
         if size_embedding and (type(embed_table) is not tf.Variable):
             with tf.device("/cpu:0"):
                 with tf.variable_scope(self.name, reuse=(self.__class__.num_Model > 0)):

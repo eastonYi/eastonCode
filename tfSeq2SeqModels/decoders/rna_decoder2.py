@@ -88,7 +88,7 @@ class RNADecoder(Decoder):
 
         logits = logits[:, 1:, :]
         preds = preds[:, 1:]
-        not_padding = tf.to_int32(tf.sequence_mask(len_encoded))
+        not_padding = tf.to_int32(tf.sequence_mask(len_encoded, maxlen=tf.shape(encoded)[1]))
         preds = tf.multiply(tf.to_int32(preds), not_padding)
 
         return logits, preds, len_encoded

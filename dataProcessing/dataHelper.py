@@ -72,7 +72,7 @@ class ASR_csv_DataSet(ASRDataSet):
         super().__init__(list_files, args, _shuffle, transform)
         self.list_utterances = self.gen_utter_list(list_files)
         if _shuffle:
-            self.shuffle_list_files()
+            self.shuffle_utts()
 
     def __getitem__(self, idx):
         utterance = self.list_utterances[idx]
@@ -98,7 +98,7 @@ class ASR_csv_DataSet(ASRDataSet):
                 list_utter.extend(f.readlines())
         return list_utter
 
-    def shuffle_list_files(self):
+    def shuffle_utts(self):
         shuffle(self.list_utterances)
 
     def __len__(self):
@@ -164,7 +164,7 @@ class LMDataSet(DataSet):
         self.args = args
         self._shuffle = _shuffle
         self.token2idx, self.idx2token = args.token2idx, args.idx2token
-        self.end_id = self.token2idx['<eos>']
+        self.end_id = self.token2idx['<eos>'] if '<eos>' in self.token2idx else None
         self.start_id = self.token2idx['<sos>'] if '<sos>' in self.token2idx else self.token2idx['<blk>']
         if _shuffle:
             shuffle(self.list_files)
@@ -190,8 +190,8 @@ class LMDataSet(DataSet):
                 for line in f:
                     line = line.strip().split()
                     text_ids = [self.token2idx[word] for word in line]
-                    src_ids = [self.start_id] + text_ids
-                    tar_ids = text_ids + [self.end_id]
+                    src_ids = [self.start_id] + (text_ids if self.end_id else text_ids[:-1])
+                    tar_ids = (text_ids + [self.end_id]) if self.end_id else text_ids
                     sample = {'feature': src_ids, 'label': tar_ids}
                     yield sample
 

@@ -2,39 +2,25 @@
 the while_loop implementation'''
 
 import tensorflow as tf
-from .decoder import Decoder
+from .rna_decoder3 import RNADecoder
 from tensorflow.python.util import nest
 from tfModels.tensor2tensor import dcommon_layers
 from tfModels.coldFusion import cold_fusion
 
 
-class RNADecoder(Decoder):
+class CTC_LM_Decoder(RNADecoder):
     """language model cold fusion
     """
 
     def __init__(self, args, is_train, global_step, embed_table=None, name=None):
-        self.num_layers = args.model.decoder.num_layers
-        self.num_cell_units_de = args.model.decoder.num_cell_units
-        self.dropout = args.model.decoder.dropout
-        self.num_cell_units_en = args.model.encoder.num_cell_units
-        self.size_embedding = args.model.decoder.size_embedding
-        self.dim_output = args.dim_output
-        self.softmax_temperature = args.model.decoder.softmax_temperature
-        if args.model.decoder.cold_fusion:
-            from tfSeq2SeqModels.languageModel import LanguageModel
-            from tfSeq2SeqModels.decoders.speller import Speller as decoder
-
-            args.model.lm.dim_output = args.dim_output
-            args.model.lm.list_gpus = args.list_gpus
-            self.lm = LanguageModel(
-                tensor_global_step=global_step,
-                encoder=None,
-                decoder=decoder,
-                is_train=False,
-                args=args.model.lm
-            )
-            self.num_cell_units_lm = args.model.decoder.num_cell_units_lm
         super().__init__(args, is_train, global_step, embed_table, name)
+        self.num_layers = args.model.decoder2.num_layers
+        self.num_cell_units_de = args.model.decoder2.num_cell_units
+        self.dropout = args.model.decoder2.dropout
+        self.num_cell_units_en = args.dim_output
+        self.size_embedding = args.model.decoder2.size_embedding
+        self.dim_output = args.dim_output
+        self.softmax_temperature = args.model.decoder2.softmax_temperature
 
     def _decode(self, encoded, len_encoded):
         batch_size = tf.shape(len_encoded)[0]
@@ -122,36 +108,3 @@ class RNADecoder(Decoder):
         preds = tf.multiply(tf.to_int32(preds), not_padding)
 
         return logits, preds, len_encoded
-
-    def create_cell(self):
-        cell = dcommon_layers.lstm_cells(
-            self.num_layers,
-            self.num_cell_units_de,
-            initializer=None,
-            dropout=self.dropout)
-
-        return cell
-
-    def zero_state(self, batch_size, dtype):
-        return self.cell.zero_state(batch_size, dtype)
-
-    @staticmethod
-    def update_lm(preds, blank_id, logit_lm, state_lm, logit_lm_pre, state_lm_pre, num_cell_units_lm):
-        is_blank = tf.equal(preds, tf.fill(tf.shape(preds), blank_id))
-
-        # logit update
-        updated_logit_lm = tf.where(
-            condition=is_blank,
-            x=logit_lm_pre,
-            y=logit_lm)
-
-        # state update
-        is_blank = tf.stack([tf.to_float(is_blank)]*num_cell_units_lm, 1)
-        updated_state_lm = []
-        for cell_pre, cell in zip(state_lm_pre, state_lm):
-            h_states = is_blank * cell_pre.h + (1-is_blank) * cell.h
-            c_states = is_blank * cell_pre.c + (1-is_blank) * cell.c
-            updated_state_lm.append(tf.contrib.rnn.LSTMStateTuple(c_states, h_states))
-        updated_state_lm = tuple(updated_state_lm)
-
-        return updated_logit_lm, updated_state_lm

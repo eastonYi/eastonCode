@@ -3,6 +3,7 @@ import logging
 from tfModels.tools import choose_device
 from tfTools.tfTools import dense_sequence_to_sparse
 from tfSeq2SeqModels.seq2seqModel import Seq2SeqModel
+from tfModels.regularization import confidence_penalty
 
 
 class RNAModel(Seq2SeqModel):
@@ -61,6 +62,7 @@ class RNAModel(Seq2SeqModel):
                         len_logits=len_decode,
                         labels=tensors_input.label_splits[id_gpu],
                         decoded=decoded)
+                    assert ocd_loss.get_shape().ndims == loss.get_shape().ndims == 0
                     loss += ocd_loss
                 else:
                     ocd_loss = tf.constant(0)
@@ -115,18 +117,11 @@ class RNAModel(Seq2SeqModel):
                 ctc_merge_repeated=False,
                 ignore_longer_outputs_than_inputs=True,
                 time_major=False)
-            loss = ctc_loss_batch # utter-level ctc loss
+            loss = tf.reduce_mean(ctc_loss_batch) # utter-level ctc loss
 
         if self.args.model.confidence_penalty:
-            logging.info('using confidence penalty')
-            with tf.name_scope("confidence_penalty"):
-                real_probs = tf.nn.softmax(logits)
-                prevent_nan_constant = tf.constant(1e-10)
-                real_probs += prevent_nan_constant
-
-                neg_entropy = tf.reduce_sum(real_probs * tf.log(real_probs), axis=-1)
-                ls_loss = self.args.model.confidence_penalty * tf.reduce_sum(neg_entropy, axis=-1)
-
+            ls_loss = self.args.model.confidence_penalty * confidence_penalty(logits, len_logits)
+            ls_loss = tf.reduce_mean(ls_loss)
             loss += ls_loss
 
         if self.args.model.policy_learning:
@@ -136,8 +131,6 @@ class RNAModel(Seq2SeqModel):
         if self.args.model.expected_loss:
             ep_loss = self.expected_loss(logits, len_logits, labels, len_labels)
             loss += self.args.model.expected_loss * ep_loss
-
-        loss = tf.reduce_mean(loss)
 
         return loss
 
@@ -153,9 +146,14 @@ class RNAModel(Seq2SeqModel):
             ref=labels,
             vocab_size=self.args.dim_output)
 
-        crossent = tf.nn.softmax_cross_entropy_with_logits_v2(
-            labels=optimal_distributions,
-            logits=logits)
+        try:
+            crossent = tf.nn.softmax_cross_entropy_with_logits_v2(
+                labels=optimal_distributions,
+                logits=logits)
+        except:
+            crossent = tf.nn.softmax_cross_entropy_with_logits(
+                labels=optimal_distributions,
+                logits=logits)
 
         pad_mask = tf.sequence_mask(
             len_logits,
@@ -168,23 +166,11 @@ class RNAModel(Seq2SeqModel):
             blank_id = self.args.dim_output-1
             blank_mask = tf.to_float(tf.not_equal(decoded, blank_id))
             mask = pad_mask * blank_mask
-        loss = tf.reduce_sum(crossent * mask)/tf.reduce_sum(mask)
-        # loss = tf.reduce_sum(crossent * mask, -1)
-        # loss = tf.reduce_mean(loss)
-
-        if self.args.model.confidence_penalty:
-            logging.info('using confidence penalty')
-            with tf.name_scope("confidence_penalty"):
-                real_probs = tf.nn.softmax(logits)
-                prevent_nan_constant = tf.constant(1e-10)
-                real_probs += prevent_nan_constant
-
-                neg_entropy = tf.reduce_sum(real_probs * tf.log(real_probs), axis=-1)
-                ls_loss = self.args.model.confidence_penalty * tf.reduce_sum(neg_entropy, axis=-1)
-                loss += ls_loss
+        # if all is blank, the sum of mask would be 0, and loss be NAN
+        loss_batch = tf.reduce_sum(crossent * mask, -1)
+        loss = tf.reduce_mean(loss_batch)
 
         return loss
-
 
     def rna_decode(self, logits=None, len_logits=None, beam_reserve=False):
         beam_size = self.args.beam_size
@@ -210,69 +196,3 @@ class RNAModel(Seq2SeqModel):
                     merge_repeated=False)[0][0])
 
         return decoded_sparse
-
-    def policy_learning(self, logits, len_logits, labels, len_labels, encoded, len_encoded):
-        assert (encoded is not None) and (len_encoded is not None)
-        from tfModels.ctcModel import CTCModel
-        from tfTools.tfTools import pad_to_same
-
-        # with tf.variable_scope('policy_learning'):
-        with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-            decoder_sample = self.gen_decoder(
-                is_train=False,
-                embed_table=self.embed_table_decoder,
-                global_step=self.global_step,
-                args=self.args)
-            decoder_sample.build_helper(
-                type=self.args.model.decoder.sampleHelper,
-                encoded=encoded,
-                len_encoded=len_encoded)
-
-            logits_sample, sample_id_sample, _ = decoder_sample(encoded, len_encoded)
-
-        label_sparse = dense_sequence_to_sparse(labels, len_labels)
-
-        # bias(gready) decode
-        decoded_sparse = self.rna_decode(logits, len_logits)
-        wer_bias = tf.edit_distance(decoded_sparse, label_sparse, normalize=True)
-        wer_bias = tf.stop_gradient(wer_bias)
-
-        # sample decode
-        sample_sparse = self.rna_decode(logits_sample, len_logits)
-        wer = tf.edit_distance(sample_sparse, label_sparse, normalize=True)
-        sample = tf.sparse_to_dense(
-            sparse_indices=sample_sparse.indices,
-            output_shape=sample_sparse.dense_shape,
-            sparse_values=sample_sparse.values,
-            default_value=0,
-            validate_indices=True)
-        len_sample = tf.count_nonzero(sample, -1, dtype=tf.int32)
-        # wer_bias = tf.Print(wer_bias, [len_sample], message='len_sample', summarize=1000)
-        seq_sample, labels = pad_to_same([sample, labels])
-        seq_sample = tf.where(len_sample<1, labels, seq_sample)
-        len_sample = tf.where(len_sample<1, len_labels, len_sample)
-
-        reward = wer_bias - wer
-
-        rl_loss, _ = CTCModel.policy_ctc_loss(
-            logits=logits_sample,
-            len_logits=len_logits,
-            flabels=sample,
-            len_flabels=len_sample,
-            batch_reward=reward,
-            ctc_merge_repeated=False,
-            args=self.args)
-
-        return rl_loss
-
-    def expected_loss(self, logits, len_logits, labels, len_labels):
-        label_sparse = dense_sequence_to_sparse(labels, len_labels)
-        list_decoded_sparse = self.rna_decode(logits, len_logits, beam_reserve=True)
-        list_wer = []
-        for decoded_sparse in list_decoded_sparse:
-            decoded_sparse = tf.to_int32(decoded_sparse)
-            list_wer.append(tf.edit_distance(decoded_sparse, label_sparse, normalize=True))
-        wer_bias = tf.reduce_mean(list_wer)
-        ep_loss = (list_wer - wer_bias)/len(list_wer)
-
-        return ep_loss

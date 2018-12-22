@@ -2,7 +2,6 @@
 contains the general recurrent decoder class'''
 
 import tensorflow as tf
-from tensorflow.contrib.layers import fully_connected
 from .decoder import Decoder
 # from ..tools import helpers
 
@@ -29,7 +28,12 @@ class FCDecoder(Decoder):
                 of [batch_size x ... ] tensors
         '''
         dim_output = self.args.dim_output
-        logits = fully_connected(encoded, dim_output)
+        logits = tf.layers.dense(
+            inputs=encoded,
+            units=dim_output,
+            activation=None,
+            use_bias=False,
+            name='fully_connected')
         preds = tf.argmax(logits, -1)
 
         return logits, preds, len_encoded

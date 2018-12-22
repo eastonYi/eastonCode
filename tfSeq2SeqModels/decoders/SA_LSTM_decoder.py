@@ -2,17 +2,16 @@
 contains the general recurrent decoder class'''
 
 import logging
-from abc import ABCMeta, abstractmethod
 import tensorflow as tf
 from tfModels.tensor2tensor import common_attention
 from .decoder import Decoder
 from tensorflow.python.util import nest
-from ..tools.utils import shift_right, embedding, residual, multihead_attention, ff_hidden, dense
+from ..tools.utils import residual, multihead_attention, ff_hidden, dense
 from tfModels.tensor2tensor import dcommon_layers
 
 
-class SelfAttentionLSTMDecoder(Decoder):
-    '''a speller decoder for the LAS architecture'''
+class SA_LSTM_Decoder(Decoder):
+    '''lstm + self-attention decoder where lstm as a normal decoder and SA as a lm embedding'''
 
     def _decode(self, encoded, len_encoded):
         '''
@@ -20,94 +19,72 @@ class SelfAttentionLSTMDecoder(Decoder):
         num_cell_units_en = self.args.model.encoder.num_cell_units
         num_cell_units_de = self.args.model.decoder.num_cell_units
         num_blocks = self.args.model.decoder.num_blocks
-        size_embedding = self.args.model.decoder.size_embedding
-        num_layers = self.args.model.decoder.num_layers
         dim_output = self.args.dim_output
-        dropout = self.args.model.decoder.dropout
+        softmax_temperature = self.args.model.decoder.softmax_temperature
 
         batch_size = tf.shape(len_encoded)[0]
         blank_id = dim_output-1
-        initial_ids = tf.fill([batch_size, 1], blank_id)
-        initial_logits = tf.zeros([batch_size, 1, dim_output], dtype=tf.float32)
+        token_init = tf.fill([batch_size, 1], blank_id)
+        logits_init = tf.zeros([batch_size, 1, dim_output], dtype=tf.float32)
         mask_preds_init = tf.fill([batch_size, 1], False)
 
+        self.cell = self.create_cell()
         # collect the initial states of lstms used in decoder.
         all_initial_states = {}
-        # the initial states of lstm which model the symbol recurrence (lm).
-        initial_states = []
-        zero_states = tf.zeros([batch_size, num_cell_units_de], dtype=tf.float32)
-        for i in range(num_layers):
-            initial_states.append(tf.contrib.rnn.LSTMStateTuple(zero_states, zero_states))
-        all_initial_states["lstm_states"] = tuple(initial_states)
-
-        tf.get_variable(
-            shape=(dim_output, num_cell_units_en+size_embedding),
-            name='fully_connected',
-            dtype=tf.float32)
-
         cache = tf.zeros([batch_size, 0, num_blocks, num_cell_units_de])
+        all_initial_states["state_decoder"] = self.zero_state(batch_size, dtype=tf.float32)
 
-        def step(i, preds, mask_preds, all_lstm_states, cache, logits):
-
-            lstm_states = all_lstm_states["lstm_states"]
-
-            # Concat the prediction embedding and the encoder_output
-            eshape = tf.shape(encoded)
-            initial_tensor = tf.zeros([eshape[0], eshape[2]])
-            # initial_tensor.set_shape([None, num_cell_units_de])
-            prev_encoder_output = tf.cond(tf.equal(i, 0),
-                                          lambda: initial_tensor,
-                                          lambda: encoded[:, i-1, :])
+        def step(i, preds, mask_preds, all_states, cache, logits):
+            state_decoder = all_states["state_decoder"]
 
             decoder_output, cache = self.decoder_with_caching_impl(
                 decoder_input=preds,
                 decoder_input_mask=mask_preds,
                 decoder_cache=cache)
-            decoder_inputs = tf.concat([prev_encoder_output, decoder_output[:, -1, :]], axis=1)
-            decoder_inputs.set_shape([None, num_cell_units_en + num_cell_units_de])
+            decoder_input = tf.concat([encoded[:, i, :], decoder_output[:, -1, :]], axis=1)
+            decoder_input.set_shape([None, num_cell_units_en + num_cell_units_de])
 
             # Lstm part
             with tf.variable_scope("decoder_lstms"):
-                multi_lstm_cells = dcommon_layers.lstm_cells(
-                    num_layers,
-                    num_cell_units_de,
-                    initializer=None,
-                    dropout=dropout)
+                output_decoder, state_decoder = tf.contrib.legacy_seq2seq.rnn_decoder(
+                    decoder_inputs=[decoder_input],
+                    initial_state=state_decoder,
+                    cell=self.cell)
+                all_states["state_decoder"] = state_decoder
+                output_decoder = [tf.concat([output_decoder[0], encoded[:, i, :]], axis=1)]
 
-                lstm_outputs, lstm_states = tf.contrib.legacy_seq2seq.rnn_decoder(
-                    decoder_inputs=[decoder_inputs],
-                    initial_state=lstm_states,
-                    cell=multi_lstm_cells)
+            cur_logit = tf.layers.dense(
+                inputs=output_decoder[0],
+                units=dim_output,
+                activation=None,
+                use_bias=False,
+                name='fully_connected')
 
-                pre_softmax_inputs = tf.concat([lstm_outputs[0], encoded[:, i, :]], axis=1)
-
-            # lstm_outputs: a list of outputs, using the element 0
-            with tf.variable_scope(tf.get_variable_scope(), reuse=True):
-                var_top = tf.get_variable(name='fully_connected')
-            cur_logits = tf.matmul(pre_softmax_inputs, var_top, transpose_b=True)
-            cur_ids = tf.to_int32(tf.argmax(cur_logits, -1))
-
-            # Update.
+            if self.is_train and self.args.model.decoder.sample_decoder:
+                sample_logit = cur_logit/softmax_temperature - tf.reduce_max(cur_logit, -1, keepdims=True)
+                cur_ids = tf.distributions.Categorical(logits=sample_logit).sample()
+            else:
+                cur_ids = tf.to_int32(tf.argmax(cur_logit, -1))
+            preds = tf.concat([preds, tf.expand_dims(cur_ids, 1)], axis=1)
+            logits = tf.concat([logits, tf.expand_dims(cur_logit, 1)], 1)
+            # Here we coarsely remove all the blank labels in the predictions, hoping to reduce the computation of self-attention
             mask_preds_cur = tf.equal(cur_ids, blank_id)
             mask_preds = tf.concat([mask_preds, tf.expand_dims(mask_preds_cur, 1)], axis=1)
-            # is_empty = tf.reduce_sum(tf.to_int32(mask_preds_cur))
-            # mask_preds = tf.cond(is_empty,
-            #                      lambda: mask_preds,
-            #                      lambda: tf.concat([mask_preds, tf.expand_dims(mask_preds_cur, 1)], axis=1))
+            # mask_preds = tf.cond(
+            #     tf.reduce_all(mask_preds_cur),
+            #     lambda: mask_preds,
+            #     lambda: tf.concat([mask_preds, tf.expand_dims(mask_preds_cur, 1)], axis=1))
+            # preds = tf.cond(
+            #     tf.reduce_all(mask_preds_cur),
+            #     lambda: preds,
+            #     lambda: tf.concat([preds, tf.expand_dims(cur_ids, 1)], axis=1))
 
-            preds = tf.concat([preds, tf.expand_dims(cur_ids, 1)], axis=1)
-
-            # Refresh the elements
-            logits = tf.concat([logits, tf.expand_dims(cur_logits, 1)], 1)
-
-            all_lstm_states["lstm_states"] = lstm_states
-
-            return i+1, preds, mask_preds, all_lstm_states, cache, logits
+            return i+1, preds, mask_preds, all_states, cache, logits
 
         _, preds, mask_preds, _, _, logits = tf.while_loop(
             cond=lambda i, *_: tf.less(i, tf.shape(encoded)[1]),
             body=step,
-            loop_vars=[0, initial_ids, mask_preds_init, all_initial_states, cache, initial_logits],
+            loop_vars=[0, token_init, mask_preds_init, all_initial_states, cache, logits_init],
             shape_invariants=[tf.TensorShape([]),
                               tf.TensorShape([None, None]),
                               tf.TensorShape([None, None]),
@@ -118,7 +95,7 @@ class SelfAttentionLSTMDecoder(Decoder):
 
         logits = logits[:, 1:, :]
         preds = preds[:, 1:]
-        not_padding = tf.to_int32(tf.sequence_mask(len_encoded))
+        not_padding = tf.to_int32(tf.sequence_mask(len_encoded, maxlen=tf.shape(encoded)[1]))
         preds = tf.multiply(tf.to_int32(preds), not_padding)
 
         return logits, preds, len_encoded
@@ -160,7 +137,7 @@ class SelfAttentionLSTMDecoder(Decoder):
                                               num_queries=1,
                                               output_depth=num_cell_units_de,
                                               name="decoder_self_attention",
-                                              summaries=True),
+                                              summaries=False),
                                           dropout_rate=residual_dropout_rate)
 
                 # Feed Forward
@@ -191,3 +168,19 @@ class SelfAttentionLSTMDecoder(Decoder):
         next_preds = tf.to_int32(next_preds)
 
         return last_logits, next_pred, next_preds, next_scores
+
+    def create_cell(self):
+        num_layers = self.args.model.decoder.num_layers
+        num_cell_units_de = self.args.model.decoder.num_cell_units
+        dropout = self.args.model.decoder.dropout
+
+        cell = dcommon_layers.lstm_cells(
+            num_layers,
+            num_cell_units_de,
+            initializer=None,
+            dropout=dropout)
+
+        return cell
+
+    def zero_state(self, batch_size, dtype):
+        return self.cell.zero_state(batch_size, dtype)

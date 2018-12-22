@@ -511,21 +511,21 @@ def test_OCD_with_blank_loss():
     -, -
     -, -
 
-
-
     (15, 11)
     """
     list_vocab = list(' SATRYUNDP-')
 
-    value_hyp = np.array([[list_vocab.index(s) for s in '-S-A--TR-A-P--Y'],
-                          [list_vocab.index(s) for s in 'S-AT-R-A-P-    ']],
+    # value_hyp = np.array([[list_vocab.index(s) for s in '-S-A--TR-A-P--Y'],
+    #                       [list_vocab.index(s) for s in 'S-AT-R-A-P-    ']],
+    #                      dtype=np.int32)
+    value_hyp = np.array([[list_vocab.index(s) for s in '---------------'],
+                          [list_vocab.index(s) for s in '-----------    ']],
                          dtype=np.int32)
 
     value_ref = np.array([[list_vocab.index(s) for s in 'SUNDAY'],
                           [list_vocab.index(s) for s in 'SUNDA ']],
                          dtype=np.int32)
-
-    # print(optimal_completion_targets_with_blank_v2(value_hyp, value_ref, len(list_vocab)-1))
+    print(optimal_completion_targets_with_blank_v2(value_hyp, value_ref, len(list_vocab)-1))
 
     # build graph
     hpy = tf.placeholder(tf.int32)
@@ -553,5 +553,5 @@ def test_OCD_with_blank_loss():
 if __name__ == '__main__':
     # test_ED_tf()
     # test_ED_batch()
-    test_OCD_loss()
-    # test_OCD_with_blank_loss()
+    # test_OCD_loss()
+    test_OCD_with_blank_loss()

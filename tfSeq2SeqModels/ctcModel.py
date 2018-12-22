@@ -5,16 +5,17 @@ import sys
 from tfModels.tools import choose_device
 from tfSeq2SeqModels.seq2seqModel import Seq2SeqModel
 from tfTools.tfTools import dense_sequence_to_sparse
+from tfModels.regularization import confidence_penalty
 
 logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format='%(levelname)s(%(filename)s:%(lineno)d): %(message)s')
 
 
 class CTCModel(Seq2SeqModel):
-
     def __init__(self, tensor_global_step, encoder, decoder, is_train, args,
                  batch=None, embed_table_encoder=None, embed_table_decoder=None,
                  name='tf_CTC_Model'):
         self.sample_prob = tf.convert_to_tensor(0.0)
+        self.ctc_merge_repeated = args.model.decoder.ctc_merge_repeated
         super().__init__(tensor_global_step, encoder, decoder, is_train, args,
                      batch, None, None, name)
 
@@ -35,7 +36,7 @@ class CTCModel(Seq2SeqModel):
             hidden_output, len_hidden_output = encoder(
                 features=tensors_input.feature_splits[id_gpu],
                 len_feas=tensors_input.len_fea_splits[id_gpu])
-            logits, _, len_logits = decoder(hidden_output, len_hidden_output)
+            logits, align, len_logits = decoder(hidden_output, len_hidden_output)
 
             if self.is_train:
                 loss = self.ctc_loss(
@@ -52,7 +53,7 @@ class CTCModel(Seq2SeqModel):
             self.__class__.__name__, name_gpu, self.__class__.num_Model))
 
         if self.is_train:
-            return loss, gradients
+            return loss, gradients, [align, tensors_input.label_splits[id_gpu]]
         else:
             return logits, len_logits
 
@@ -83,51 +84,23 @@ class CTCModel(Seq2SeqModel):
                     labels_sparse,
                     logits,
                     sequence_length=len_logits,
-                    ctc_merge_repeated=True,
+                    ctc_merge_repeated=self.ctc_merge_repeated,
                     ignore_longer_outputs_than_inputs=True,
                     time_major=False)
             loss = tf.reduce_mean(ctc_loss_batch) # utter-level ctc loss
 
         if self.args.model.confidence_penalty:
-            print('using confidence penalty')
-            with tf.name_scope("confidence_penalty"):
-                real_probs = tf.nn.softmax(logits)
-                prevent_nan_constant = tf.constant(1e-10)
-                real_probs += prevent_nan_constant
-
-                neg_entropy = tf.reduce_sum(real_probs * tf.log(real_probs), axis=-1)
-                ls_loss = self.args.model.confidence_penalty * tf.reduce_sum(neg_entropy, axis=-1)
+            ls_loss = self.args.model.confidence_penalty * confidence_penalty(logits, len_logits)
+            ls_loss = tf.reduce_mean(ls_loss)
             loss += ls_loss
 
         if self.args.model.policy_learning:
-            from tfModels.CTCLoss import ctc_sample, ctc_reduce_map
-            from tfTools.tfTools import sparse_shrink, pad_to_same
-            print('using policy learning')
-            with tf.name_scope("policy_learning"):
-                label_sparse = dense_sequence_to_sparse(labels, len_labels)
-                decoded_sparse = self.ctc_decode(logits, len_logits)
-                wer_bias = tf.edit_distance(decoded_sparse, label_sparse, normalize=True)
-                wer_bias = tf.stop_gradient(wer_bias)
+            from tfModels.regularization import policy_learning
 
-                sampled_align = ctc_sample(logits, self.args.model.softmax_temperature)
-                sample_sparse = ctc_reduce_map(sampled_align, id_blank=self.args.dim_output-1)
-                wer = tf.edit_distance(sample_sparse, label_sparse, normalize=True)
-                seq_sample, len_sample, _ = sparse_shrink(sample_sparse)
-
-                # ==0 is not success!!
-                seq_sample, labels = pad_to_same([seq_sample, labels])
-                seq_sample = tf.where(len_sample<1, labels, seq_sample)
-                len_sample = tf.where(len_sample<1, len_labels, len_sample)
-
-                reward = wer_bias - wer
-
-                rl_loss, _ = self.policy_ctc_loss(
-                    logits=logits,
-                    len_logits=len_logits,
-                    flabels=seq_sample,
-                    len_flabels=len_sample,
-                    batch_reward=reward,
-                    args=self.args)
+            softmax_temperature = self.model.decoder.softmax_temperature
+            dim_output = self.dim_output
+            decoded_sparse = self.ctc_decode(logits, len_logits)
+            rl_loss = policy_learning(logits, len_logits, decoded_sparse, labels, len_labels, softmax_temperature, dim_output, self.args)
             loss += self.args.model.policy_learning * rl_loss
 
         return loss
@@ -170,35 +143,3 @@ class CTCModel(Seq2SeqModel):
                 merge_repeated=True)[0][0])
 
         return decoded_sparse
-
-    @staticmethod
-    def policy_ctc_loss(logits, len_logits, flabels, len_flabels, batch_reward, args, ctc_merge_repeated=True):
-        """
-        flabels: not the ground-truth
-        if len_flabels=None, means the `flabels` is sparse
-        """
-        from tfTools.math_tf import non_linear
-
-        with tf.name_scope("policy_ctc_loss"):
-            if len_flabels is not None:
-                flabels_sparse = dense_sequence_to_sparse(
-                    flabels,
-                    len_flabels)
-            else:
-                flabels_sparse = flabels
-
-            ctc_loss_batch = tf.nn.ctc_loss(
-                flabels_sparse,
-                logits,
-                sequence_length=len_logits,
-                ignore_longer_outputs_than_inputs=True,
-                ctc_merge_repeated=ctc_merge_repeated,
-                time_major=False)
-            ctc_loss_batch *= batch_reward
-            ctc_loss_batch = non_linear(
-                ctc_loss_batch,
-                args.model.non_linear,
-                args.model.min_reward)
-            loss = tf.reduce_mean(ctc_loss_batch) # utter-level ctc loss
-
-        return loss, ctc_loss_batch

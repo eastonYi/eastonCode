@@ -68,7 +68,7 @@ class CONV_LSTM(Encoder):
             use_residual=use_residual,
             dropout=dropout,
             name='blstm_1')
-        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'SAME', 1)
+        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'HALF', 1)
 
         outputs = self.blstm(
             hidden_output=outputs,
@@ -77,7 +77,7 @@ class CONV_LSTM(Encoder):
             use_residual=use_residual,
             dropout=dropout,
             name='blstm_2')
-        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'HALF', 2)
+        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'SAME', 2)
 
         outputs = self.blstm(
             hidden_output=outputs,
@@ -86,7 +86,7 @@ class CONV_LSTM(Encoder):
             use_residual=use_residual,
             dropout=dropout,
             name='blstm_3')
-        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'SAME', 3)
+        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'HALF', 3)
 
         outputs = self.blstm(
             hidden_output=outputs,
@@ -95,7 +95,7 @@ class CONV_LSTM(Encoder):
             use_residual=use_residual,
             dropout=dropout,
             name='blstm_4')
-        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'HALF', 4)
+        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'SAME', 4)
 
         return outputs, output_seq_lengths
 

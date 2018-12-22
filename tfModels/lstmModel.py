@@ -272,13 +272,15 @@ class LSTM_Model(object):
                                                               name=self.args.optimizer)
         return optimizer
 
-    @property
-    def variables(self):
+
+    def variables(self, scope=None):
         '''get a list of the models's variables'''
-        import re
+        scope = scope if scope else self.name
+        scope += '/'
+        print('all the variables in the scope:', scope)
         variables = tf.get_collection(
             tf.GraphKeys.GLOBAL_VARIABLES,
-            scope=re.compile('.+'+self.name))
+            scope=scope)
 
         return variables
 

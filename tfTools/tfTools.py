@@ -157,13 +157,28 @@ def batch_pad(p, length, pad, direct='head'):
 
 def batch_pad_to(p, length, pad):
     """
-    expend the 2d tensor to assinment length
+    expend the 2d tensor to assigned length
     """
     length_p = tf.shape(p)[1]
     pad_length = tf.reduce_max([length_p, length])-length_p
 
     pad = tf.cast(tf.fill(dims=[tf.shape(p)[0], pad_length], value=pad), dtype=p.dtype)
     res = tf.concat([p, pad], axis=1)
+
+    return res
+
+def pad_to(p, length, pad=0.0, axis=1):
+    """
+    expend the arbitrary shape tensor to assigned length along the assigned axis
+    """
+    length_p = tf.shape(p)[axis]
+    pad_length = tf.reduce_max([length_p, length])-length_p
+
+    shape = p.get_shape()
+    pad_shape = [*shape]
+    pad_shape[axis] = pad_length
+    pad_tensor = tf.ones(pad_shape, dtype=p.dtype) * pad
+    res = tf.concat([p, pad_tensor], axis=axis)
 
     return res
 
@@ -241,3 +256,8 @@ def get_indices(len_seq):
                                    tf.expand_dims(len_seq, numdims)))
 
     return indices
+
+
+# def remove_pad(input_tensor, pad):
+#
+#     return output_tensor, mask
