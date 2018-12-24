@@ -4,7 +4,6 @@ the while_loop implementation'''
 import tensorflow as tf
 from .rna_decoder3 import RNADecoder
 from tensorflow.python.util import nest
-from tfModels.tensor2tensor import dcommon_layers
 from tfModels.coldFusion import cold_fusion
 
 
@@ -49,7 +48,7 @@ class CTC_LM_Decoder(RNADecoder):
                     initial_state=state_decoder,
                     cell=self.cell)
                 all_states["state_decoder"] = state_decoder
-                output_decoder = [tf.concat([output_decoder[0], encoded[:, i, :]], axis=1)]
+                # output_decoder = [tf.concat([output_decoder[0], encoded[:, i, :]], axis=1)]
 
             if self.args.model.decoder.cold_fusion:
                 logit_lm, state_lm = self.lm.forward(

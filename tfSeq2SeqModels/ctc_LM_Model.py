@@ -3,7 +3,7 @@ import logging
 import sys
 
 from tfModels.tools import choose_device
-from tfTools.tfTools import dense_sequence_to_sparse, pad_to
+from tfTools.tfTools import dense_sequence_to_sparse, pad_to, acoustic_shrink
 from tfSeq2SeqModels.seq2seqModel import Seq2SeqModel
 from tfModels.regularization import confidence_penalty
 
@@ -51,11 +51,15 @@ class CTCLMModel(Seq2SeqModel):
                 len_feas=tensors_input.len_fea_splits[id_gpu])
             encoded, alignment, len_encoded = self.fc_decoder(hidden_output, len_hidden_output)
 
-            encoded = tf.stop_gradient(encoded)
-            len_acoustic = tf.stop_gradient(len_encoded)
+            # encoded = tf.stop_gradient(encoded)
+            # len_acoustic = tf.stop_gradient(len_encoded)
             distribution_acoustic = tf.nn.softmax(encoded)
+            len_acoustic = len_encoded
 
-            distribution_no_blank, len_no_blank = self.acoustic_shrink(distribution_acoustic, len_acoustic)
+            distribution_no_blank, len_no_blank = acoustic_shrink(
+                distribution_acoustic=distribution_acoustic,
+                len_acoustic=len_acoustic,
+                dim_output=self.args.dim_output)
             logits, decoded, len_decode = decoder(distribution_no_blank, len_no_blank)
 
             if self.is_train:
@@ -73,7 +77,7 @@ class CTCLMModel(Seq2SeqModel):
             self.__class__.__name__, name_gpu, self.__class__.num_Model))
 
         if self.is_train:
-            return loss, gradients, [decoded, tensors_input.label_splits[id_gpu], distribution_acoustic, len_acoustic, distribution_no_blank]
+            return loss, gradients, [decoded, tensors_input.label_splits[id_gpu], distribution_acoustic, len_acoustic, len_no_blank, distribution_no_blank]
             # return loss, gradients, tf.no_op()
         else:
             return logits, len_encoded, decoded
@@ -94,7 +98,6 @@ class CTCLMModel(Seq2SeqModel):
     def ocd_loss(self, logits, len_logits, labels, decoded):
         """
         the logits length is the sample_id length
-        the len_labels is useless(??)
         """
         from tfModels.OCDLoss import OCD_loss
 
@@ -117,44 +120,9 @@ class CTCLMModel(Seq2SeqModel):
             maxlen=tf.shape(logits)[1],
             dtype=logits.dtype)
 
-        if self.args.model.decoder.loss_on_blank:
-            mask = pad_mask
-        else:
-            blank_id = self.args.dim_output-1
-            blank_mask = tf.to_float(tf.not_equal(decoded, blank_id))
-            mask = pad_mask * blank_mask
-        # if all is blank, the sum of mask would be 0, and loss be NAN
-        loss_batch = tf.reduce_sum(crossent * mask, -1)
-        loss = tf.reduce_mean(loss_batch)
+        loss = tf.reduce_sum(crossent * pad_mask)/tf.reduce_sum(pad_mask)
 
         return loss
-
-    def acoustic_shrink(self, distribution_acoustic, len_acoustic):
-        no_blank = tf.to_int32(tf.not_equal(tf.argmax(distribution_acoustic, -1), self.args.dim_output-1))
-        mask_acoustic = tf.sequence_mask(len_acoustic, maxlen=tf.shape(distribution_acoustic)[1], dtype=no_blank.dtype)
-        no_blank = mask_acoustic*no_blank
-        len_no_blank = tf.reduce_sum(no_blank, -1)
-        batch_size = tf.size(len_no_blank)
-        max_len = tf.reduce_max(len_no_blank)
-        acoustic_shrinked_init = tf.zeros([1, max_len, self.args.dim_output])
-
-        def step(i, acoustic_shrinked):
-            shrinked = tf.gather(distribution_acoustic[i], tf.where(no_blank[i]>0)[0])
-            shrinked_paded = pad_to(shrinked, max_len, axis=0)
-            acoustic_shrinked = tf.concat([acoustic_shrinked,
-                                           tf.expand_dims(shrinked_paded, 0)], 0)
-            return i+1, acoustic_shrinked
-
-        _, acoustic_shrinked = tf.while_loop(
-            cond=lambda i, *_: tf.less(i, batch_size),
-            body=step,
-            loop_vars=[0, acoustic_shrinked_init],
-            shape_invariants=[tf.TensorShape([]),
-                              tf.TensorShape([None, None, self.args.dim_output])]
-        )
-        # acoustic_shrinked = tf.gather_nd(distribution_acoustic, tf.where(no_blank>0))
-        acoustic_shrinked = acoustic_shrinked[1:, :, :]
-        return acoustic_shrinked, len_no_blank
 
     def get_embedding(self, embed_table, size_input, size_embedding):
         if size_embedding and (type(embed_table) is not tf.Variable):

@@ -167,6 +167,7 @@ def batch_pad_to(p, length, pad):
 
     return res
 
+
 def pad_to(p, length, pad=0.0, axis=1):
     """
     expend the arbitrary shape tensor to assigned length along the assigned axis
@@ -203,6 +204,7 @@ def right_shift_rows(p, shift, pad):
 
     return tf.concat([tf.fill(dims=[tf.shape(p)[0], 1], value=pad), p[:, :-shift]], axis=1)
 
+
 def left_shift_rows(p, shift, pad):
     assert type(shift) is int
 
@@ -229,6 +231,40 @@ def sparse_shrink(sparse, pad=0):
     seq = tf.sparse_tensor_to_dense(sparse_shrinked, default_value=pad)
 
     return seq, len_seq, sparse_shrinked
+
+
+def acoustic_shrink(distribution_acoustic, len_acoustic, dim_output):
+    """
+    filter out the distribution where blank_id dominants.
+    the blank_id default to be dim_output-1.
+    incompletely tested
+    """
+    blank_id = dim_output - 1
+    no_blank = tf.to_int32(tf.not_equal(tf.argmax(distribution_acoustic, -1), blank_id))
+    mask_acoustic = tf.sequence_mask(len_acoustic, maxlen=tf.shape(distribution_acoustic)[1], dtype=no_blank.dtype)
+    no_blank = mask_acoustic*no_blank
+    len_no_blank = tf.reduce_sum(no_blank, -1)
+    batch_size = tf.size(len_no_blank)
+    max_len = tf.reduce_max(len_no_blank)
+    acoustic_shrinked_init = tf.zeros([1, max_len, dim_output])
+
+    def step(i, acoustic_shrinked):
+        shrinked = tf.gather(distribution_acoustic[i], tf.reshape(tf.where(no_blank[i]>0), [-1]))
+        shrinked_paded = pad_to(shrinked, max_len, axis=0)
+        acoustic_shrinked = tf.concat([acoustic_shrinked,
+                                       tf.expand_dims(shrinked_paded, 0)], 0)
+        return i+1, acoustic_shrinked
+
+    _, acoustic_shrinked = tf.while_loop(
+        cond=lambda i, *_: tf.less(i, batch_size),
+        body=step,
+        loop_vars=[0, acoustic_shrinked_init],
+        shape_invariants=[tf.TensorShape([]),
+                          tf.TensorShape([None, None, dim_output])]
+    )
+    # acoustic_shrinked = tf.gather_nd(distribution_acoustic, tf.where(no_blank>0))
+    acoustic_shrinked = acoustic_shrinked[1:, :, :]
+    return acoustic_shrinked, len_no_blank
 
 
 def get_indices(len_seq):
