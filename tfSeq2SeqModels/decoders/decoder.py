@@ -73,7 +73,7 @@ class Decoder(object):
             'input_labels, output_labels, len_labels')
 
         assert self.start_token, self.end_token
-        
+
         if tensors_input.label_splits:
             # in the training mode, so that label is provided
             decoder_input.output_labels = tensors_input.label_splits[id_gpu]

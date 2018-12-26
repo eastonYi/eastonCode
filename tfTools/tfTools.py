@@ -244,6 +244,21 @@ def acoustic_shrink(distribution_acoustic, len_acoustic, dim_output):
     mask_acoustic = tf.sequence_mask(len_acoustic, maxlen=tf.shape(distribution_acoustic)[1], dtype=no_blank.dtype)
     no_blank = mask_acoustic*no_blank
     len_no_blank = tf.reduce_sum(no_blank, -1)
+
+    batch_size = tf.shape(no_blank)[0]
+    seq_len = tf.shape(no_blank)[1]
+    no_blank = tf.where(
+        tf.not_equal(len_no_blank, 0),
+        no_blank,
+        tf.concat([tf.ones([batch_size, 1], dtype=tf.int32),
+                   tf.zeros([batch_size, seq_len-1], dtype=tf.int32)], 1)
+    )
+    len_no_blank = tf.where(
+        tf.not_equal(len_no_blank, 0),
+        len_no_blank,
+        tf.ones_like(len_no_blank, dtype=tf.int32)
+    )
+
     batch_size = tf.size(len_no_blank)
     max_len = tf.reduce_max(len_no_blank)
     acoustic_shrinked_init = tf.zeros([1, max_len, dim_output])
@@ -253,9 +268,10 @@ def acoustic_shrink(distribution_acoustic, len_acoustic, dim_output):
         shrinked_paded = pad_to(shrinked, max_len, axis=0)
         acoustic_shrinked = tf.concat([acoustic_shrinked,
                                        tf.expand_dims(shrinked_paded, 0)], 0)
+
         return i+1, acoustic_shrinked
 
-    _, acoustic_shrinked = tf.while_loop(
+    i, acoustic_shrinked = tf.while_loop(
         cond=lambda i, *_: tf.less(i, batch_size),
         body=step,
         loop_vars=[0, acoustic_shrinked_init],
@@ -263,7 +279,9 @@ def acoustic_shrink(distribution_acoustic, len_acoustic, dim_output):
                           tf.TensorShape([None, None, dim_output])]
     )
     # acoustic_shrinked = tf.gather_nd(distribution_acoustic, tf.where(no_blank>0))
+
     acoustic_shrinked = acoustic_shrinked[1:, :, :]
+
     return acoustic_shrinked, len_no_blank
 
 

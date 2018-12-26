@@ -3,11 +3,12 @@ import logging
 import sys
 
 from tfModels.tools import choose_device
-from tfTools.tfTools import dense_sequence_to_sparse, pad_to, acoustic_shrink
+from tfTools.tfTools import acoustic_shrink, dense_sequence_to_sparse
 from tfSeq2SeqModels.seq2seqModel import Seq2SeqModel
 from tfModels.regularization import confidence_penalty
 
 logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format='%(levelname)s(%(filename)s:%(lineno)d): %(message)s')
+
 
 class CTCLMModel(Seq2SeqModel):
 
@@ -51,16 +52,25 @@ class CTCLMModel(Seq2SeqModel):
                 len_feas=tensors_input.len_fea_splits[id_gpu])
             encoded, alignment, len_encoded = self.fc_decoder(hidden_output, len_hidden_output)
 
-            # encoded = tf.stop_gradient(encoded)
-            # len_acoustic = tf.stop_gradient(len_encoded)
+            if self.args.model.train_encoder:
+                len_acoustic = len_encoded
+            else:
+                encoded = tf.stop_gradient(encoded)
+                len_acoustic = tf.stop_gradient(len_encoded)
             distribution_acoustic = tf.nn.softmax(encoded)
-            len_acoustic = len_encoded
 
             distribution_no_blank, len_no_blank = acoustic_shrink(
                 distribution_acoustic=distribution_acoustic,
                 len_acoustic=len_acoustic,
                 dim_output=self.args.dim_output)
-            logits, decoded, len_decode = decoder(distribution_no_blank, len_no_blank)
+            if (not self.is_train) and (self.args.beam_size>1):
+                print('beam search ...')
+                with tf.variable_scope(decoder.name or 'decoder'):
+                    logits, decoded, len_decode = decoder.beam_decode(distribution_no_blank, len_no_blank)
+            else:
+                print('greedy search ...')
+                logits, decoded, len_decode = decoder(distribution_no_blank, len_no_blank)
+
 
             if self.is_train:
                 loss = self.ocd_loss(
@@ -68,6 +78,17 @@ class CTCLMModel(Seq2SeqModel):
                     len_logits=len_decode,
                     labels=tensors_input.label_splits[id_gpu],
                     decoded=decoded)
+                if self.args.model.confidence_penalty:
+                    ls_loss = self.args.model.confidence_penalty * confidence_penalty(logits, len_decode)
+                    ls_loss = tf.reduce_mean(ls_loss)
+                    loss += ls_loss
+                if self.args.model.ctc_loss_for_acoutic:
+                    ctc_loss = self.ctc_loss(
+                        logits=encoded,
+                        len_logits=len_encoded,
+                        labels=tensors_input.label_splits[id_gpu],
+                        len_labels=tensors_input.len_label_splits[id_gpu])
+                    loss += ctc_loss
 
                 with tf.name_scope("gradients"):
                     gradients = self.optimizer.compute_gradients(loss)
@@ -91,7 +112,8 @@ class CTCLMModel(Seq2SeqModel):
                 name_gpu=self.list_gpu_devices[0],
                 tensors_input=tensors_input)
 
-            distribution = tf.nn.softmax(logits)
+            # distribution = tf.nn.softmax(logits)
+            distribution = logits
 
         return sample_id, tensors_input.shape_batch, distribution
 
@@ -120,7 +142,36 @@ class CTCLMModel(Seq2SeqModel):
             maxlen=tf.shape(logits)[1],
             dtype=logits.dtype)
 
-        loss = tf.reduce_sum(crossent * pad_mask)/tf.reduce_sum(pad_mask)
+        if self.args.model.utt_level_loss:
+            loss = tf.reduce_mean(tf.reduce_sum(crossent * pad_mask, -1)) # utt-level
+        else:
+            loss = tf.reduce_sum(crossent * pad_mask)/tf.reduce_sum(pad_mask) # token-level
+
+        return loss
+
+    def ctc_loss(self, logits, len_logits, labels, len_labels):
+        """
+        No valid path found: It is possible that no valid path is found if the
+        activations for the targets are zero.
+        """
+        ctc_merge_repeated = self.args.model.decoder.ctc_merge_repeated
+        with tf.name_scope("ctc_loss"):
+            labels_sparse = dense_sequence_to_sparse(
+                labels,
+                len_labels)
+            ctc_loss_batch = tf.nn.ctc_loss(
+                labels_sparse,
+                logits,
+                sequence_length=len_logits,
+                ctc_merge_repeated=ctc_merge_repeated,
+                ignore_longer_outputs_than_inputs=True,
+                time_major=False)
+            loss = tf.reduce_mean(ctc_loss_batch) # utter-level ctc loss
+
+        if self.args.model.confidence_penalty:
+            ls_loss = self.args.model.confidence_penalty * confidence_penalty(logits, len_logits)
+            ls_loss = tf.reduce_mean(ls_loss)
+            loss += ls_loss
 
         return loss
 

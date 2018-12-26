@@ -7,6 +7,7 @@ from tensorflow.python.util import nest
 from tensorflow.contrib.layers import fully_connected
 from tensorflow.contrib.seq2seq import sequence_loss
 from tfTools.gradientTools import average_gradients, handle_gradients
+from tfModels.regularization import confidence_penalty
 
 from tfModels.tools import choose_device
 from tfModels.layers import build_cell
@@ -100,6 +101,7 @@ class LanguageModel(Seq2SeqModel):
             #     dtype=tf.float32)
 
             logits = hidden_output
+            len_logits = tensors_input.len_label_splits[id_gpu]
 
             loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
                 labels=tensors_input.label_splits[id_gpu],
@@ -108,6 +110,10 @@ class LanguageModel(Seq2SeqModel):
                 tensors_input.len_label_splits[id_gpu],
                 maxlen=tf.shape(logits)[1],
                 dtype=logits.dtype)
+            if self.args.model.confidence_penalty:
+                ls_loss = self.args.model.confidence_penalty * confidence_penalty(logits, len_logits)
+                ls_loss = tf.reduce_mean(ls_loss)
+                loss += ls_loss
 
             # from tfModels.tensor2tensor.common_layers import padded_cross_entropy, weights_nonzero
             #
