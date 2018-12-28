@@ -63,12 +63,11 @@ class LanguageModel(Seq2SeqModel):
 
         loss = tf.reduce_sum(loss_step)
         # merge gradients, update current model
-        with tf.variable_scope('training'):
-            with tf.device(self.center_device):
-                # computation relevant to gradient
-                averaged_grads = average_gradients(tower_grads)
-                handled_grads = handle_gradients(averaged_grads, self.args)
-                op_optimize = self.optimizer.apply_gradients(handled_grads, self.global_step)
+        with tf.device(self.center_device):
+            # computation relevant to gradient
+            averaged_grads = average_gradients(tower_grads)
+            handled_grads = handle_gradients(averaged_grads, self.args)
+            op_optimize = self.optimizer.apply_gradients(handled_grads, self.global_step)
 
         self.__class__.num_Instances += 1
         logging.info("built {} {} instance(s).".format(self.__class__.num_Instances, self.__class__.__name__))
@@ -84,14 +83,14 @@ class LanguageModel(Seq2SeqModel):
 
             if self.type == 'LSTM':
                 from tfSeq2SeqModels.decoders.lm_decoder import LM_Decoder
-                decoder = LM_Decoder(self.args, self.is_train)
-                hidden_output, _ = decoder(inputs, len_inputs)
+                self.decoder = LM_Decoder(self.args, self.is_train)
+                hidden_output, _ = self.decoder(inputs, len_inputs)
             elif self.type == 'SelfAttention':
                 from tfSeq2SeqModels.decoders.self_attention_lm_decoder import SelfAttentionDecoder
-                decoder = SelfAttentionDecoder(self.args, self.is_train, self.embed_table_decoder)
+                self.decoder= SelfAttentionDecoder(self.args, self.is_train, self.embed_table_decoder)
                 # from tfSeq2SeqModels.decoders.self_attention_lm_decoder_lh import SelfAttentionDecoder_lh
                 # decoder = SelfAttentionDecoder_lh(self.args, self.is_train, self.embed_table_decoder)
-                hidden_output = decoder(inputs, len_inputs)
+                hidden_output = self.decoder(inputs, len_inputs)
             # self.cell = self.make_multi_cell(self.num_layers)
             #
             # hidden_output, _ = tf.nn.dynamic_rnn(
@@ -147,7 +146,8 @@ class LanguageModel(Seq2SeqModel):
         # cerate input tensors in the cpu
         tensors_input = self.build_infer_idx_input()
 
-        with tf.variable_scope(self.name, reuse=bool(self.__class__.num_Model), initializer=self.initializer):
+        # with tf.variable_scope(self.name, reuse=bool(self.__class__.num_Model)):
+        with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
             loss = self.build_single_graph(
                 id_gpu=0,
                 name_gpu=self.list_gpu_devices[0],

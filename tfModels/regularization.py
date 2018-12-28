@@ -5,6 +5,10 @@ epsilon = 1e-10
 
 
 def confidence_penalty(logits, len_logits):
+    """
+    H = - \sum(P * logP)
+    loss = -H = \sum(P * logP)
+    """
     with tf.name_scope("confidence_penalty"):
         real_probs = tf.nn.softmax(logits)+epsilon
         neg_entropy = tf.reduce_sum(real_probs * tf.log(real_probs), axis=-1)

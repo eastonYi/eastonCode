@@ -41,7 +41,21 @@ it has the encoder-decoder framwork but use the ctc loss.
 - conv_lstm_lh
 if using blstm, the num_cell_units represent the sum of the two directions cell numbers.
 
+## Decoders
+deocder has the embedding function
+```python
+def embedding(self, ids):
+    if self.embed_table:
+        embeded = tf.nn.embedding_lookup(self.embed_table, ids)
+    else:
+        embeded = tf.one_hot(ids, self.args.dim_output, dtype=tf.float32)
+
+    return embeded
+```
+
+
 # Projects
+
 the projects has
 - arguments.py
 - datasets.py

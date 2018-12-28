@@ -49,7 +49,8 @@ class LSTM_Model(object):
         # the outer scope is necessary for the where the reuse scope need to be limited whthin
         # or reuse=tf.get_variable_scope().reuse
         for id_gpu, name_gpu in enumerate(self.list_gpu_devices):
-            with tf.variable_scope(self.name, reuse=bool(self.__class__.num_Model)):
+            # with tf.variable_scope(self.name, reuse=bool(self.__class__.num_Model)):
+            with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
                 loss, gradients, debug = self.build_single_graph(id_gpu, name_gpu, tensors_input)
                 loss_step.append(loss)
                 tower_grads.append(gradients)
@@ -83,7 +84,8 @@ class LSTM_Model(object):
 
         # the outer scope is necessary for the where the reuse scope need to be limited whthin
         # or reuse=tf.get_variable_scope().reuse
-        with tf.variable_scope(self.name, reuse=bool(self.__class__.num_Model)):
+        # with tf.variable_scope(self.name, reuse=bool(self.__class__.num_Model)):
+        with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
             loss, logits = self.build_single_graph(
                 id_gpu=0,
                 name_gpu=self.list_gpu_devices[0],

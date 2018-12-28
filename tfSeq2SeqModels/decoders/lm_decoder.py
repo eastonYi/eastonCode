@@ -6,7 +6,7 @@ class LM_Decoder(object):
     '''a general decoder for an encoder decoder system
     converts the high level features into output logits
     '''
-    def __init__(self, args, is_train, name=None):
+    def __init__(self, args, is_train, embed_table=None, name=None):
         '''EDDecoder constructor
         Args:
             conf: the decoder configuration as a configparser
@@ -31,6 +31,7 @@ class LM_Decoder(object):
         self.rnn_mode = args.model.decoder.rnn_mode
         self.size_embedding = args.model.decoder.size_embedding
         self.dim_output = args.dim_output
+        self.embed_table = embed_table
 
         self.cell = self.make_multi_cell(args.num_layers)
 
@@ -88,3 +89,11 @@ class LM_Decoder(object):
         multi_cell = tf.contrib.rnn.MultiRNNCell(list_cells, state_is_tuple=True)
 
         return multi_cell
+
+    def embedding(self, ids):
+        if self.embed_table:
+            embeded = tf.nn.embedding_lookup(self.embed_table, ids)
+        else:
+            embeded = tf.one_hot(ids, self.args.dim_output, dtype=tf.float32)
+
+        return embeded

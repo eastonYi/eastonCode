@@ -64,9 +64,18 @@ class CTCLMModel(Seq2SeqModel):
                 len_acoustic=len_acoustic,
                 dim_output=self.args.dim_output)
             if (not self.is_train) and (self.args.beam_size>1):
-                print('beam search ...')
-                with tf.variable_scope(decoder.name or 'decoder'):
-                    logits, decoded, len_decode = decoder.beam_decode(distribution_no_blank, len_no_blank)
+                if self.args.dirs.lm_checkpoint:
+                    logging.info('beam search with language model ...')
+                    with tf.variable_scope(decoder.name or 'decoder'):
+                        logits, decoded, len_decode = decoder.beam_decode_lm(
+                            distribution_no_blank,
+                            len_no_blank)
+                else:
+                    logging.info('beam search ...')
+                    with tf.variable_scope(decoder.name or 'decoder'):
+                        logits, decoded, len_decode = decoder.beam_decode(
+                            distribution_no_blank,
+                            len_no_blank)
             else:
                 print('greedy search ...')
                 logits, decoded, len_decode = decoder(distribution_no_blank, len_no_blank)

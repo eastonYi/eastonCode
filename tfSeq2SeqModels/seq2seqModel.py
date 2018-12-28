@@ -247,7 +247,8 @@ class Seq2SeqModel(LSTM_Model):
     def get_embedding(self, embed_table, size_input, size_embedding):
         if size_embedding and (type(embed_table) is not tf.Variable):
             with tf.device("/cpu:0"):
-                with tf.variable_scope(self.name, reuse=(self.__class__.num_Model > 0)):
+                # with tf.variable_scope(self.name, reuse=(self.__class__.num_Model > 0)):
+                with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
                     embed_table = tf.get_variable(
                         "embedding", [size_input, size_embedding], dtype=tf.float32)
 
