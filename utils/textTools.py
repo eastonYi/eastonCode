@@ -118,6 +118,23 @@ def array_idx2char(array_idx, idx2token, seperator=''):
         return [array_idx2char(i, idx2token, seperator=seperator) for i in array_idx]
 
 
+def array_char2idx(list_idx, token2idx, seperator=''):
+    """
+    list of chars to the idx array and length
+    """
+    from utils.tools import padding_list_seqs
+    sents = []
+    if seperator:
+        for sent in list_idx:
+            sents.append([token2idx[token] for token in sent.split(seperator)])
+    else:
+        for sent in list_idx:
+            sents.append([token2idx[token] for token in list(sent)])
+    padded, len_seqs = padding_list_seqs(sents)
+
+    return padded, len_seqs
+
+
 def text_to_char_array(original):
     """
     Given a Python string ``original``, map characters

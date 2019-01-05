@@ -24,7 +24,8 @@ class CTC_LM_Decoder(RNADecoder):
         self.num_layers = args.model.decoder2.num_layers
         self.num_cell_units_de = args.model.decoder2.num_cell_units
         self.dropout = args.model.decoder2.dropout
-        self.num_cell_units_en = args.dim_output
+        self.num_cell_units_en = args.model.encoder.num_cell_units \
+                                if args.model.shrink_hidden else args.dim_output
         self.size_embedding = args.model.decoder2.size_embedding
         self.dim_output = args.dim_output
         self.softmax_temperature = args.model.decoder2.softmax_temperature
@@ -54,7 +55,7 @@ class CTC_LM_Decoder(RNADecoder):
             state_decoder = all_states["state_decoder"]
             prev_emb = self.embedding(preds[:, -1])
             decoder_input = tf.concat([encoded[:, i, :], prev_emb], axis=1)
-            decoder_input.set_shape([None, self.size_embedding + self.num_cell_units_en])
+            decoder_input.set_shape([None, self.num_cell_units_en+self.size_embedding])
 
             # Lstm part
             with tf.variable_scope("decoder_lstms"):

@@ -128,7 +128,7 @@ def dense_sequence_to_sparse(seq, len_seq):
         sparse = tf.SparseTensor(indices, values, shape)
 
     return sparse
-
+        
 
 def batch_pad(p, length, pad, direct='head'):
     """
@@ -238,6 +238,8 @@ def acoustic_shrink(distribution_acoustic, len_acoustic, dim_output):
     filter out the distribution where blank_id dominants.
     the blank_id default to be dim_output-1.
     incompletely tested
+    the len_no_blank will be set one if distribution_acoustic is all blank dominanted
+
     """
     blank_id = dim_output - 1
     no_blank = tf.to_int32(tf.not_equal(tf.argmax(distribution_acoustic, -1), blank_id))
@@ -247,6 +249,8 @@ def acoustic_shrink(distribution_acoustic, len_acoustic, dim_output):
 
     batch_size = tf.shape(no_blank)[0]
     seq_len = tf.shape(no_blank)[1]
+
+    # the repairing, otherwise the length would be 0
     no_blank = tf.where(
         tf.not_equal(len_no_blank, 0),
         no_blank,
@@ -283,7 +287,6 @@ def acoustic_shrink(distribution_acoustic, len_acoustic, dim_output):
     acoustic_shrinked = acoustic_shrinked[1:, :, :]
 
     return acoustic_shrinked, len_no_blank
-
 
 def get_indices(len_seq):
     '''get the indices corresponding to sequences (and not padding)

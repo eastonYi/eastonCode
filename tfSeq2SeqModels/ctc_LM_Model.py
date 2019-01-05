@@ -3,7 +3,7 @@ import logging
 import sys
 
 from tfModels.tools import choose_device
-from tfTools.tfTools import acoustic_shrink, dense_sequence_to_sparse
+from tfTools.tfTools import acoustic_shrink, pad_to, dense_sequence_to_sparse
 from tfSeq2SeqModels.seq2seqModel import Seq2SeqModel
 from tfModels.regularization import confidence_penalty
 
@@ -59,10 +59,21 @@ class CTCLMModel(Seq2SeqModel):
                 len_acoustic = tf.stop_gradient(len_encoded)
             distribution_acoustic = tf.nn.softmax(encoded)
 
-            distribution_no_blank, len_no_blank = acoustic_shrink(
-                distribution_acoustic=distribution_acoustic,
-                len_acoustic=len_acoustic,
-                dim_output=self.args.dim_output)
+            if self.args.model.shrink_hidden:
+                hidden_output_shrinked, len_no_blank = acoustic_hidden_shrink(
+                    distribution_acoustic=distribution_acoustic,
+                    hidden=hidden_output,
+                    len_acoustic=len_acoustic,
+                    dim_output=self.args.dim_output,
+                    hidden_size=self.args.model.encoder.num_cell_units,
+                    num_avg=self.args.model.num_avg)
+                distribution_no_blank = hidden_output_shrinked
+            else:
+                distribution_no_blank, len_no_blank = acoustic_shrink(
+                    distribution_acoustic=distribution_acoustic,
+                    len_acoustic=len_acoustic,
+                    dim_output=self.args.dim_output)
+
             if (not self.is_train) and (self.args.beam_size>1):
                 if self.args.dirs.lm_checkpoint:
                     logging.info('beam search with language model ...')
@@ -79,7 +90,6 @@ class CTCLMModel(Seq2SeqModel):
             else:
                 print('greedy search ...')
                 logits, decoded, len_decode = decoder(distribution_no_blank, len_no_blank)
-
 
             if self.is_train:
                 loss = self.ocd_loss(
@@ -192,3 +202,65 @@ class CTCLMModel(Seq2SeqModel):
                         "embedding", [size_input, size_embedding], dtype=tf.float32)
 
         return embed_table
+
+
+def acoustic_hidden_shrink(distribution_acoustic, hidden, len_acoustic, dim_output, hidden_size, num_avg=1):
+    """
+    filter out the distribution where blank_id dominants.
+    the blank_id default to be dim_output-1.
+    incompletely tested
+    the len_no_blank will be set one if distribution_acoustic is all blank dominanted
+    shrink the hidden instead of distribution_acoustic
+    """
+    blank_id = dim_output - 1
+    no_blank = tf.to_int32(tf.not_equal(tf.argmax(distribution_acoustic, -1), blank_id))
+    mask_acoustic = tf.sequence_mask(len_acoustic, maxlen=tf.shape(distribution_acoustic)[1], dtype=no_blank.dtype)
+    no_blank = mask_acoustic*no_blank
+    len_no_blank = tf.reduce_sum(no_blank, -1)
+
+    batch_size = tf.shape(no_blank)[0]
+    seq_len = tf.shape(no_blank)[1]
+
+    # the repairing, otherwise the length would be 0
+    no_blank = tf.where(
+        tf.not_equal(len_no_blank, 0),
+        no_blank,
+        tf.concat([tf.ones([batch_size, 1], dtype=tf.int32),
+                   tf.zeros([batch_size, seq_len-1], dtype=tf.int32)], 1)
+    )
+    len_no_blank = tf.where(
+        tf.not_equal(len_no_blank, 0),
+        len_no_blank,
+        tf.ones_like(len_no_blank, dtype=tf.int32)
+    )
+
+    batch_size = tf.size(len_no_blank)
+    max_len = tf.reduce_max(len_no_blank)
+    hidden_shrinked_init = tf.zeros([1, max_len, hidden_size])
+
+    # average the hidden of n frames
+    if num_avg == 3:
+        hidden = (hidden + \
+                tf.concat([hidden[:, 1:, :], hidden[:, -1:, :]], 1) + \
+                tf.concat([hidden[:, :1, :], hidden[:, :-1, :]], 1)) / num_avg
+
+    def step(i, hidden_shrinked):
+        shrinked = tf.gather(hidden[i], tf.reshape(tf.where(no_blank[i]>0), [-1]))
+        shrinked_paded = pad_to(shrinked, max_len, axis=0)
+        hidden_shrinked = tf.concat([hidden_shrinked,
+                                       tf.expand_dims(shrinked_paded, 0)], 0)
+
+        return i+1, hidden_shrinked
+
+    i, hidden_shrinked = tf.while_loop(
+        cond=lambda i, *_: tf.less(i, batch_size),
+        body=step,
+        loop_vars=[0, hidden_shrinked_init],
+        shape_invariants=[tf.TensorShape([]),
+                          tf.TensorShape([None, None, hidden_size])]
+    )
+    # acoustic_shrinked = tf.gather_nd(distribution_acoustic, tf.where(no_blank>0))
+
+    hidden_shrinked = hidden_shrinked[1:, :, :]
+
+    return hidden_shrinked, len_no_blank

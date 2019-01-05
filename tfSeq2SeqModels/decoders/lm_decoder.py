@@ -1,6 +1,7 @@
 '''@file asr_decoder.py
 contains the EDDecoder class'''
 import tensorflow as tf
+from tensorflow.python.util import nest
 
 class LM_Decoder(object):
     '''a general decoder for an encoder decoder system
@@ -97,3 +98,52 @@ class LM_Decoder(object):
             embeded = tf.one_hot(ids, self.args.dim_output, dtype=tf.float32)
 
         return embeded
+
+    def zero_state(self, batch_size, dtype=tf.float32):
+        return self.cell.zero_state(batch_size, dtype=tf.float32)
+
+    def forward(self, input, state, stop_gradient=False, list_state=False):
+        if input.get_shape().ndims <2:
+            input = tf.nn.embedding_lookup(self.embed_table, input)
+        output, state = tf.contrib.legacy_seq2seq.rnn_decoder(
+            decoder_inputs=[input],
+            initial_state=state,
+            cell=self.cell)
+
+        if stop_gradient:
+            output = tf.stop_gradient(output)
+
+        if list_state:
+            list_cells = []
+            for cell in state:
+                cell = tf.nn.rnn_cell.LSTMStateTuple(tf.stop_gradient(cell[0]), tf.stop_gradient(cell[1]))
+                list_cells.append(cell)
+            state = tuple(list_cells)
+
+        return output[0], state
+
+    def sample(self, token_init=None, state_init=None, max_length=50):
+        def step(i, preds, state_decoder):
+            output, state_output = self.forward(preds[:, -1], state_decoder)
+            sampled_id = tf.distributions.Categorical(logits=output).sample()
+            sampled_ids = tf.concat([preds, tf.expand_dims(sampled_id, 1)], axis=1)
+
+            return i+1, sampled_ids, state_output
+
+        num_samples = tf.placeholder(tf.int32, [], name='num_samples')
+
+        if token_init is None:
+            token_init = tf.ones([num_samples, 1], dtype=tf.int32) * self.args.sos_idx
+        if state_init is None:
+            state_init = self.zero_state(num_samples)
+
+        _, sampled, _ = tf.while_loop(
+            cond=lambda i, *_: tf.less(i, max_length),
+            body=step,
+            loop_vars=[0, token_init, state_init],
+            shape_invariants=[tf.TensorShape([]),
+                              tf.TensorShape([None, None]),
+                              nest.map_structure(lambda t: tf.TensorShape(t.shape), state_init)
+                              ]
+            )
+        return sampled, num_samples
