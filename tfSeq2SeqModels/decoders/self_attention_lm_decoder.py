@@ -133,19 +133,6 @@ class SelfAttentionDecoder(LM_Decoder):
 
         return decoder_output, new_cache
 
-    # def test_output(self, decoder_output):
-    #     beam_size = self.beam_size
-    #     dim_output = self.dim_output
-    #     """During test, we only need the last prediction at each time."""
-    #     last_logits = dense(decoder_output[:, -1], dim_output, use_bias=False,
-    #                         kernel=self.embed_table, name='dst_softmax')
-    #     next_pred = tf.to_int32(tf.argmax(last_logits, axis=-1))
-    #     z = tf.nn.log_softmax(last_logits)
-    #     next_scores, next_preds = tf.nn.top_k(z, k=beam_size, sorted=False)
-    #     next_preds = tf.to_int32(next_preds)
-    #
-    #     return last_logits, next_pred, next_preds, next_scores
-
     def sample(self, token_init=None, state_init=None, max_length=50):
         """sample in graph.
         utilize the `decoder_with_caching_impl`
@@ -188,13 +175,16 @@ class SelfAttentionDecoder(LM_Decoder):
         return preds, num_samples
 
     def score(self, decoder_input, len_seqs):
-        '''score batch sentences
+        '''
+        decoder_input : <sos> + sent + <eos>
+        score batch sentences
         utilize the `decoder_impl`
         return batch_score(log scale)
         '''
         eps = 1e-10
         decoder_input = tf.to_int32(decoder_input)
-        decoder_input_embed = tf.nn.embedding_lookup(self.embed_table, decoder_input)
+        # input is `<sos> + sent`
+        decoder_input_embed = tf.nn.embedding_lookup(self.embed_table, decoder_input[:, :-1])
         hidden_output = self.decoder_impl(decoder_input_embed)
         # reuse the `fully_connected`
         logits = dense(
@@ -203,13 +193,14 @@ class SelfAttentionDecoder(LM_Decoder):
             kernel=tf.transpose(self.fully_connected),
             use_bias=False)
         distribution = tf.nn.softmax(logits, -1)
-        scores = tf.gather_nd(distribution, self.tensor2indices(decoder_input))
-        mask = tf.sequence_mask(len_seqs, maxlen=tf.shape(decoder_input)[1], dtype=scores.dtype)
+        # output is `sent + <eos>`
+        scores = tf.gather_nd(distribution, self.tensor2indices(decoder_input[:, 1:]))
+        mask = tf.sequence_mask(len_seqs, maxlen=tf.shape(decoder_input)[1]-1, dtype=scores.dtype)
         scores = scores * mask + eps
         scores_log = tf.log(scores)
         scores_log = tf.reduce_sum(scores_log, -1)
 
-        return scores_log
+        return scores_log, distribution
 
     @staticmethod
     def tensor2indices(batch_sents):

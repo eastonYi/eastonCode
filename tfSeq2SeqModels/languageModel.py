@@ -191,5 +191,9 @@ class LanguageModel(Seq2SeqModel):
             return self.decoder.sample(token_init, state_init, max_length)
 
     def score(self, decoder_input, len_seqs):
+        """
+        the input to the score is <sos> + sent + <eos>
+        the input to the model is `<sos> + sent` and the score gather indices is `sent + <eos>`
+        """
         with tf.variable_scope(self.decoder.scope, reuse=True):
             return self.decoder.score(decoder_input, len_seqs)

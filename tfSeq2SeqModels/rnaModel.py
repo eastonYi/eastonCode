@@ -94,13 +94,22 @@ class RNAModel(Seq2SeqModel):
 
             # ctc decode
             # why not simply use the sample_id: https://distill.pub/2017/ctc/#inference
-            decoded_sparse = self.rna_decode(logits, len_logits)
+            if self.args.model.rerank:
+                logging.info('load language model object: {}'.format(self.args.lm_obj))
+                self.lm = self.args.lm_obj
+                decoded_sparse = self.rna_beam_search_rerank(logits, len_logits)
+
+            else:
+
+                decoded_sparse = self.rna_decode(logits, len_logits)
+
             decoded = tf.sparse_to_dense(
                 sparse_indices=decoded_sparse.indices,
                 output_shape=decoded_sparse.dense_shape,
                 sparse_values=decoded_sparse.values,
                 default_value=0,
                 validate_indices=True)
+
             distribution = tf.nn.softmax(logits)
 
         return decoded, tensors_input.shape_batch, distribution
@@ -196,3 +205,41 @@ class RNAModel(Seq2SeqModel):
                     merge_repeated=False)[0][0])
 
         return decoded_sparse
+
+    def rna_beam_search_rerank(self, logits=None, len_logits=None):
+        from tfTools.tfTools import pad_to_same
+
+        beam_size = self.args.beam_size
+        logits_timeMajor = tf.transpose(logits, [1, 0, 2])
+
+        assert beam_size >= 1
+        list_decode, list_prob_log = tf.nn.ctc_beam_search_decoder(
+            logits_timeMajor,
+            len_logits,
+            beam_width=beam_size,
+            merge_repeated=False)
+
+        list_decoded = []
+        for decoded_sparse in list_decode:
+            decoded = tf.sparse_to_dense(
+                sparse_indices=decoded_sparse.indices,
+                output_shape=decoded_sparse.dense_shape,
+                sparse_values=decoded_sparse.values,
+                default_value=0,
+                validate_indices=True)
+            list_decoded.append(decoded)
+        decoded_beam, lens_beam = pad_to_same(list_decoded)
+
+        with tf.variable_scope(self.args.top_scope, reuse=True):
+            with tf.variable_scope(self.args.lm_scope):
+                score_rerank, distribution = self.lm.decoder.score(decoded_beam, lens_beam)
+
+        scores = score_rerank + tf.convert_to_tensor(list_prob_log, dtype=score_rerank.dtype)
+
+        scores_sorted, sorted = tf.nn.top_k(scores, k=beam_size, sorted=True)
+        preds_sorted = tf.gather(decoded_beam, sorted)
+        # logits_sorted = tf.gather(logits, sorted)
+        score_rerank_sorted = tf.gather(score_rerank, sorted)
+
+        # return logits, final_preds, len_encoded
+        return preds_sorted, [scores_sorted, score_rerank_sorted]

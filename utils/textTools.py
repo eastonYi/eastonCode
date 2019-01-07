@@ -130,7 +130,7 @@ def array_char2idx(list_idx, token2idx, seperator=''):
     else:
         for sent in list_idx:
             sents.append([token2idx[token] for token in list(sent)])
-    padded, len_seqs = padding_list_seqs(sents)
+    padded, len_seqs = padding_list_seqs(sents, dtype=np.int32)
 
     return padded, len_seqs
 

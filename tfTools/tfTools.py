@@ -128,7 +128,7 @@ def dense_sequence_to_sparse(seq, len_seq):
         sparse = tf.SparseTensor(indices, values, shape)
 
     return sparse
-        
+
 
 def batch_pad(p, length, pad, direct='head'):
     """
@@ -171,6 +171,10 @@ def batch_pad_to(p, length, pad):
 def pad_to(p, length, pad=0.0, axis=1):
     """
     expend the arbitrary shape tensor to assigned length along the assigned axis
+    demo:
+        p = tf.ones([10, 5])
+        pad_to(p, 11)
+        <tf.Tensor 'concat_2:0' shape=(10, 11) dtype=float32>
     """
     length_p = tf.shape(p)[axis]
     pad_length = tf.reduce_max([length_p, length])-length_p
@@ -196,7 +200,7 @@ def pad_to_same(list_tensors):
     for tensor in list_tensors:
         list_padded.append(batch_pad_to(tensor, len_max, 0))
 
-    return list_padded
+    return list_padded, list_lens
 
 
 def right_shift_rows(p, shift, pad):
@@ -287,6 +291,40 @@ def acoustic_shrink(distribution_acoustic, len_acoustic, dim_output):
     acoustic_shrinked = acoustic_shrinked[1:, :, :]
 
     return acoustic_shrinked, len_no_blank
+
+
+def alignment_shrink(align, blank_id):
+    """
+    //treat the alignment as a sparse tensor where the pad is blank.
+    get the indices, values and new_shape
+    finally, use the `tf.sparse_tensor_to_dense`
+
+    loop along the batch dim
+    """
+    batch_size = tf.shape(align)[0]
+    len_seq = tf.reduce_sum(tf.to_int32(tf.not_equal(align, blank_id)), -1)
+    max_len = tf.reduce_max(len_seq)
+    noblank_init = tf.zeros([1, max_len], dtype=align.dtype)
+
+    def step(i, noblank):
+        noblank_i = tf.reshape(tf.gather(align[i],
+                                         tf.where(tf.not_equal(align[i], blank_id))), [-1])
+        pad = tf.zeros([max_len-tf.shape(noblank_i)[0]], dtype=align.dtype)
+        noblank_i = tf.concat([noblank_i, pad], -1)
+        noblank = tf.concat([noblank, noblank_i[None, :]], 0)
+
+        return i+1, noblank
+
+    _, noblank = tf.while_loop(
+        cond=lambda i, *_: tf.less(i, batch_size),
+        body=step,
+        loop_vars=[0, noblank_init],
+        shape_invariants=[tf.TensorShape([]),
+                          tf.TensorShape([None, max_len])]
+    )
+
+    return noblank[1:], len_seq
+
 
 def get_indices(len_seq):
     '''get the indices corresponding to sequences (and not padding)

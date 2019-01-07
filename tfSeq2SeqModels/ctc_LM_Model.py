@@ -78,9 +78,14 @@ class CTCLMModel(Seq2SeqModel):
                 if self.args.dirs.lm_checkpoint:
                     logging.info('beam search with language model ...')
                     with tf.variable_scope(decoder.name or 'decoder'):
-                        logits, decoded, len_decode = decoder.beam_decode_lm(
-                            distribution_no_blank,
-                            len_no_blank)
+                        if self.args.model.rerank:
+                            logits, decoded, len_decode = decoder.beam_decode_rerank(
+                                distribution_no_blank,
+                                len_no_blank)
+                        else:
+                            logits, decoded, len_decode = decoder.beam_decode_lm(
+                                distribution_no_blank,
+                                len_no_blank)
                 else:
                     logging.info('beam search ...')
                     with tf.variable_scope(decoder.name or 'decoder'):
