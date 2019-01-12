@@ -200,7 +200,7 @@ def pad_to_same(list_tensors):
     for tensor in list_tensors:
         list_padded.append(batch_pad_to(tensor, len_max, 0))
 
-    return list_padded, list_lens
+    return list_padded
 
 
 def right_shift_rows(p, shift, pad):
@@ -303,6 +303,7 @@ def alignment_shrink(align, blank_id):
     """
     batch_size = tf.shape(align)[0]
     len_seq = tf.reduce_sum(tf.to_int32(tf.not_equal(align, blank_id)), -1)
+
     max_len = tf.reduce_max(len_seq)
     noblank_init = tf.zeros([1, max_len], dtype=align.dtype)
 
@@ -320,7 +321,7 @@ def alignment_shrink(align, blank_id):
         body=step,
         loop_vars=[0, noblank_init],
         shape_invariants=[tf.TensorShape([]),
-                          tf.TensorShape([None, max_len])]
+                          tf.TensorShape([None, None])]
     )
 
     return noblank[1:], len_seq

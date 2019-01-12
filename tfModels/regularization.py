@@ -8,6 +8,7 @@ def confidence_penalty(logits, len_logits):
     """
     H = - \sum(P * logP)
     loss = -H = \sum(P * logP)
+    sequence-level loss
     """
     with tf.name_scope("confidence_penalty"):
         real_probs = tf.nn.softmax(logits)+epsilon

@@ -181,6 +181,7 @@ class SelfAttentionDecoder(LM_Decoder):
         utilize the `decoder_impl`
         return batch_score(log scale)
         '''
+
         eps = 1e-10
         decoder_input = tf.to_int32(decoder_input)
         # input is `<sos> + sent`
