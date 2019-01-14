@@ -109,88 +109,88 @@ class Decoder(object):
 
         return embeded
 
-    def build_helper(self, type, batch_size=None, labels=None, len_labels=None,
-                     encoded=None, len_encoded=None):
-        """
-        two types of helper:
-            training: need labels, len_labels,
-            infer: need batch_size
-        """
-        from ..tools import helpers
-
-        if len_labels is not None:
-            batch_size = tf.shape(len_labels)[0]
-        elif len_encoded is not None:
-            batch_size = tf.shape(len_encoded)[0]
-        else:
-            assert batch_size is not None
-
-        if type == 'ScheduledEmbeddingTrainingHelper':
-            helper = tf.contrib.seq2seq.ScheduledEmbeddingTrainingHelper(
-                inputs=self.embedding(labels),
-                sequence_length=len_labels,
-                embedding=self.embedding,
-                sampling_probability=self.schedule)
-            self.beam_size = 1
-        elif type == 'ScheduledArgmaxEmbeddingTrainingHelper':
-            helper = helpers.ScheduledArgmaxEmbeddingTrainingHelper(
-                embedding=self.embedding,
-                start_tokens=tf.fill([batch_size], self.start_token),
-                end_token=self.end_token,
-                softmax_temperature=self.args.model.decoder.softmax_temperature,
-                sampling_probability=self.schedule)
-            self.beam_size = 1
-        elif type == 'ScheduledSelectEmbeddingHelper':
-            helper = helpers.ScheduledSelectEmbeddingHelper(
-                embedding=self.embedding,
-                start_tokens=tf.fill([batch_size], self.start_token),
-                end_token=self.end_token,
-                softmax_temperature=self.args.model.decoder.softmax_temperature,
-                sampling_probability=self.schedule)
-            self.beam_size = 1
-        elif type == 'TrainingHelper':
-            helper = tf.contrib.seq2seq.TrainingHelper(
-                inputs=self.embedding(labels),
-                sequence_length=len_labels,
-                name='TrainingHelper')
-            self.beam_size = 1
-        # infer helper
-        elif type == 'GreedyEmbeddingHelper':
-            helper =tf.contrib.seq2seq.GreedyEmbeddingHelper(
-                embedding=self.embedding,
-                start_tokens=tf.fill([batch_size], self.start_token),
-                end_token=self.end_token)
-            self.beam_size = 1
-        elif type == 'SampleEmbeddingHelper':
-            helper =tf.contrib.seq2seq.SampleEmbeddingHelper(
-                embedding=self.embedding,
-                start_tokens=tf.fill([batch_size], self.start_token),
-                end_token=self.end_token,
-                # softmax_temperature=self.args.model.decoder.softmax_temperature)
-                softmax_temperature=self.schedule)
-            self.beam_size = 1
-        elif type == 'BeamSearchDecoder':
-            helper = None
-            self.beam_size = self.args.beam_size
-        elif type == 'RNAGreedyEmbeddingHelper':
-            helper = helpers.RNAGreedyEmbeddingHelper(
-                encoded=encoded,
-                len_encoded=len_encoded,
-                embedding=self.embedding,
-                start_tokens=tf.fill([batch_size], self.start_token))
-            self.beam_size = 1
-        elif type == 'RNASampleEmbeddingHelper':
-            helper = helpers.RNASampleEmbeddingHelper(
-                encoded=encoded,
-                len_encoded=len_encoded,
-                embedding=self.embedding,
-                start_tokens=tf.fill([batch_size], self.start_token),
-                softmax_temperature=self.args.model.decoder.softmax_temperature)
-            self.beam_size = 1
-        else:
-            raise NotImplementedError
-
-        self.helper = helper
+    # def build_helper(self, type, batch_size=None, labels=None, len_labels=None,
+    #                  encoded=None, len_encoded=None):
+    #     """
+    #     two types of helper:
+    #         training: need labels, len_labels,
+    #         infer: need batch_size
+    #     """
+    #     from ..tools import helpers
+    #
+    #     if len_labels is not None:
+    #         batch_size = tf.shape(len_labels)[0]
+    #     elif len_encoded is not None:
+    #         batch_size = tf.shape(len_encoded)[0]
+    #     else:
+    #         assert batch_size is not None
+    #
+    #     if type == 'ScheduledEmbeddingTrainingHelper':
+    #         helper = tf.contrib.seq2seq.ScheduledEmbeddingTrainingHelper(
+    #             inputs=self.embedding(labels),
+    #             sequence_length=len_labels,
+    #             embedding=self.embedding,
+    #             sampling_probability=self.schedule)
+    #         self.beam_size = 1
+    #     elif type == 'ScheduledArgmaxEmbeddingTrainingHelper':
+    #         helper = helpers.ScheduledArgmaxEmbeddingTrainingHelper(
+    #             embedding=self.embedding,
+    #             start_tokens=tf.fill([batch_size], self.start_token),
+    #             end_token=self.end_token,
+    #             softmax_temperature=self.args.model.decoder.softmax_temperature,
+    #             sampling_probability=self.schedule)
+    #         self.beam_size = 1
+    #     elif type == 'ScheduledSelectEmbeddingHelper':
+    #         helper = helpers.ScheduledSelectEmbeddingHelper(
+    #             embedding=self.embedding,
+    #             start_tokens=tf.fill([batch_size], self.start_token),
+    #             end_token=self.end_token,
+    #             softmax_temperature=self.args.model.decoder.softmax_temperature,
+    #             sampling_probability=self.schedule)
+    #         self.beam_size = 1
+    #     elif type == 'TrainingHelper':
+    #         helper = tf.contrib.seq2seq.TrainingHelper(
+    #             inputs=self.embedding(labels),
+    #             sequence_length=len_labels,
+    #             name='TrainingHelper')
+    #         self.beam_size = 1
+    #     # infer helper
+    #     elif type == 'GreedyEmbeddingHelper':
+    #         helper =tf.contrib.seq2seq.GreedyEmbeddingHelper(
+    #             embedding=self.embedding,
+    #             start_tokens=tf.fill([batch_size], self.start_token),
+    #             end_token=self.end_token)
+    #         self.beam_size = 1
+    #     elif type == 'SampleEmbeddingHelper':
+    #         helper =tf.contrib.seq2seq.SampleEmbeddingHelper(
+    #             embedding=self.embedding,
+    #             start_tokens=tf.fill([batch_size], self.start_token),
+    #             end_token=self.end_token,
+    #             # softmax_temperature=self.args.model.decoder.softmax_temperature)
+    #             softmax_temperature=self.schedule)
+    #         self.beam_size = 1
+    #     elif type == 'BeamSearchDecoder':
+    #         helper = None
+    #         self.beam_size = self.args.beam_size
+    #     elif type == 'RNAGreedyEmbeddingHelper':
+    #         helper = helpers.RNAGreedyEmbeddingHelper(
+    #             encoded=encoded,
+    #             len_encoded=len_encoded,
+    #             embedding=self.embedding,
+    #             start_tokens=tf.fill([batch_size], self.start_token))
+    #         self.beam_size = 1
+    #     elif type == 'RNASampleEmbeddingHelper':
+    #         helper = helpers.RNASampleEmbeddingHelper(
+    #             encoded=encoded,
+    #             len_encoded=len_encoded,
+    #             embedding=self.embedding,
+    #             start_tokens=tf.fill([batch_size], self.start_token),
+    #             softmax_temperature=self.args.model.decoder.softmax_temperature)
+    #         self.beam_size = 1
+    #     else:
+    #         raise NotImplementedError
+    #
+    #     self.helper = helper
 
     @abstractmethod
     def _decode(self, encoded, len_encoded, labels, len_labels):

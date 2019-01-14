@@ -21,18 +21,14 @@ class CTC_LM_Decoder(RNADecoder):
 
     def __init__(self, args, is_train, global_step, embed_table=None, name=None):
         super().__init__(args, is_train, global_step, embed_table, name)
+        # use decoder2 heres
         self.num_layers = args.model.decoder2.num_layers
         self.num_cell_units_de = args.model.decoder2.num_cell_units
         self.dropout = args.model.decoder2.dropout
         self.num_cell_units_en = args.model.encoder.num_cell_units \
                                 if args.model.shrink_hidden else args.dim_output
         self.size_embedding = args.model.decoder2.size_embedding
-        self.dim_output = args.dim_output
         self.softmax_temperature = args.model.decoder2.softmax_temperature
-        self.beam_size = self.args.beam_size
-        if args.model.shallow_fusion:
-            logging.info('load language model object: {}'.format(args.lm_obj))
-            self.lm = args.lm_obj
 
     def _decode(self, encoded, len_encoded):
         """
@@ -398,7 +394,6 @@ class CTC_LM_Decoder(RNADecoder):
                           multiples=[1, beam_size, 1, 1]) # [batch_size, beam_size, *, hidden_units]
         encoded = tf.reshape(encoded,
                              [batch_size * beam_size, -1, encoded.get_shape()[-1].value])
-        len_encoded = tf.reshape(tf.tile(len_encoded[:, None], multiples=[1, beam_size]), [-1])
         # [[<blk>, <blk>, ..., <blk>,]], shape: [batch_size * beam_size, 1]
         token_init = tf.fill([batch_size * beam_size, 1], self.args.sos_idx)
         logits_init = tf.zeros([batch_size * beam_size, 1, self.dim_output], dtype=tf.float32)
@@ -416,6 +411,7 @@ class CTC_LM_Decoder(RNADecoder):
         # collect the initial states of lstms used in decoder.
         all_initial_states = {}
         all_initial_states["state_decoder"] = self.zero_state(batch_size * beam_size, dtype=tf.float32)
+        base_indices = tf.reshape(tf.tile(tf.range(batch_size)[:, None], multiples=[1, beam_size]), shape=[-1])
 
         def step(i, preds, scores, all_states, logits, cache):
             """
@@ -467,9 +463,7 @@ class CTC_LM_Decoder(RNADecoder):
             scores = tf.reshape(scores, shape=[batch_size, beam_size * beam_size])
 
             _, k_indices = tf.nn.top_k(scores, k=beam_size)
-            base_indices = tf.reshape(tf.tile(tf.range(batch_size)[:, None], multiples=[1, beam_size]), shape=[-1])
-            base_indices *= beam_size * beam_size
-            k_indices = base_indices + tf.reshape(k_indices, shape=[-1])  # [batch_size * beam_size]
+            k_indices = base_indices * beam_size * beam_size + tf.reshape(k_indices, shape=[-1])  # [batch_size * beam_size]
             # Update scores.
             scores = tf.reshape(scores, [-1])
             scores = tf.gather(scores, k_indices)
@@ -481,7 +475,7 @@ class CTC_LM_Decoder(RNADecoder):
 
             return i+1, preds, scores, all_states, logits, cache
 
-        _, preds, scores, _, logits, cache = tf.while_loop(
+        _, preds, scores_am, _, logits, cache = tf.while_loop(
             cond=lambda i, *_: tf.less(i, tf.shape(encoded)[1]),
             body=step,
             loop_vars=[0, token_init, scores, all_initial_states, logits_init, cache_init],
@@ -493,20 +487,39 @@ class CTC_LM_Decoder(RNADecoder):
                               tf.TensorShape([None, None, None, None])]
             )
 
+        len_encoded = tf.reshape(tf.tile(len_encoded[:, None], multiples=[1, beam_size]), [-1])
         with tf.variable_scope(self.args.top_scope, reuse=True):
             with tf.variable_scope(self.args.lm_scope):
-                score_rerank, distribution = self.lm.decoder.score(preds, len_encoded)
+                scores_lm, distribution = self.lm.decoder.score(preds, len_encoded)
 
+        # [batch_size * beam_size, ...]
         preds = preds[:, 1:]
         logits = logits[:, 1:, :]
         not_padding = tf.to_int32(tf.sequence_mask(len_encoded, maxlen=tf.shape(encoded)[1]))
         preds *= not_padding
-        score_rerank *= self.args.lambda_rerank
-        scores += score_rerank
-        scores_sorted, sorted = tf.nn.top_k(scores, k=beam_size, sorted=True)
+
+        # [batch_size , beam_size, ...]
+        scores_lm = self.args.lambda_rerank * scores_lm
+        scores = scores_am + scores_lm
+        # tf.nn.top_k is used to sort `scores`
+        scores_sorted, sorted = tf.nn.top_k(tf.reshape(scores, [batch_size, beam_size]),
+                                            k=beam_size,
+                                            sorted=True)
+
+        sorted = base_indices * beam_size + tf.reshape(sorted, shape=[-1])  # [batch_size * beam_size]
+
+        # [batch_size * beam_size, ...]
+        logits_sorted = tf.gather(logits, sorted)
         preds_sorted = tf.gather(preds, sorted)
-        # logits_sorted = tf.gather(logits, sorted)
-        score_rerank_sorted = tf.gather(score_rerank, sorted)
+        scores_lm_sorted = tf.gather(scores_lm, sorted)
+        scores_am_sorted = tf.gather(scores_am, sorted)
+
+        # [batch_size, beam_size, ...]
+        scores_lm_sorted = tf.reshape(scores_lm_sorted, shape=[batch_size, beam_size])
+        scores_am_sorted = tf.reshape(scores_am_sorted, shape=[batch_size, beam_size])
+        preds_sorted = tf.reshape(preds_sorted, shape=[batch_size, beam_size, -1])  # [batch_size, beam_size, max_length]
+        logits = tf.reshape(logits_sorted, [batch_size, beam_size, -1, self.dim_output])
+        len_encoded = tf.reshape(len_encoded, [batch_size, beam_size])
 
         # return logits, final_preds, len_encoded
-        return [preds_sorted, scores_sorted, score_rerank_sorted], preds_sorted[0, None], len_encoded
+        return [preds_sorted, scores_am_sorted, scores_lm_sorted], preds_sorted[:, 0, :], len_encoded

@@ -7,7 +7,7 @@ import threading
 import time
 import collections
 from random import shuffle, random
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from dataProcessing.audio import audio2vector, process_raw_feature
 from abc import ABCMeta, abstractmethod
 
@@ -132,6 +132,67 @@ class ASR_scp_DataSet(ASRDataSet):
             sample['label'] = np.array(
                 [self.token2idx.get(token, self.token2idx['<unk>'])
                 for token in trans] + self.end_id,
+                dtype=np.int32)
+            sample['id'] = self.reader.utt_ids[idx]
+        except:
+            print('Not found {}!'.format(self.reader.utt_ids[idx]))
+            sample = None
+
+        return sample
+
+    def __len__(self):
+        return len(self.reader.utt_ids)
+
+    def gen_id2trans(self, f_trans):
+        id2trans = {}
+        with open(f_trans) as f:
+            for line in f:
+                line = line.strip().split()
+                id = line[0]
+                trans = line[1:]
+                id2trans[id] = trans
+
+        return id2trans
+
+
+class ASR_multilabel_scp_DataSet(ASRDataSet):
+    def __init__(self, f_scp, f_trans, f_phone, args, _shuffle, transform):
+        """
+        Args:
+            f_scp: the scp file consists of paths to feature data
+            f_trans: the scp file consists of id and trans
+            f_trans2: the scp file consists of id and trans for decoder2
+        """
+        from dataProcessing.ark import ArkReader
+        self.list_files = [f_scp]
+        super().__init__(self.list_files, args, _shuffle, transform)
+        self.reader = ArkReader(f_scp)
+        self.id2trans = self.gen_id2trans(f_trans)
+        self.id2phone= self.gen_id2trans(f_phone)
+        self.phone2idx, self.idx2phone = args.phone.token2idx, args.phone.idx2token
+        self.phone_end_id = self.gen_end_id(self.phone2idx)
+
+    def __getitem__(self, idx):
+        sample = {}
+        sample['feature'] = self.reader.read_utt_data(idx)
+        if self.transform:
+            sample['feature'] = process_raw_feature(sample['feature'], self.args)
+
+        try:
+            sample['feature'] = self.reader.read_utt_data(idx)
+            if self.transform:
+                sample['feature'] = process_raw_feature(sample['feature'], self.args)
+
+            trans = self.id2trans[self.reader.utt_ids[idx]]
+            sample['label'] = np.array(
+                [self.token2idx.get(token, self.token2idx['<unk>'])
+                for token in trans] + self.end_id,
+                dtype=np.int32)
+            # for the trans2
+            trans_phone = self.id2phone[self.reader.utt_ids[idx]]
+            sample['phone'] = np.array(
+                [self.phone2idx.get(token, self.phone2idx['<unk>'])
+                for token in trans_phone] + self.phone_end_id,
                 dtype=np.int32)
             sample['id'] = self.reader.utt_ids[idx]
         except:
@@ -506,6 +567,69 @@ class ASRDataLoader(DataLoader):
 
     def __len__(self):
         return self.size_dataset
+
+class ASRMultiLabelDataLoader(DataLoader):
+    def __init__(self, dataset, args, feat, label, phone, batch_size, num_loops, num_thread=4, size_queue=2000):
+        super().__init__(dataset, args, num_loops=num_loops, num_thread=num_thread, size_queue=size_queue)
+        self.sess = None
+        self.feat = feat
+        self.label = label
+        self.phone = phone
+        self.list_seq_phones = []
+        self.size_dataset = len(dataset)
+        self.batch_size = batch_size
+
+    def __iter__(self):
+        for _ in range(len(self)*self.num_loops):
+            seq_features, seq_labels, seq_phones = self.sess.run([self.feat, self.label, self.phone])
+
+            self.list_seq_features.append(seq_features)
+            self.list_seq_labels.append(seq_labels)
+            self.list_seq_phones.append(seq_phones)
+
+            if len(self.list_seq_labels) >= self.batch_size:
+                yield self.padding_list_seq_with_multilabels(
+                    self.list_seq_features,
+                    self.list_seq_labels,
+                    self.list_seqs_phones)
+                self.list_seq_features = []
+                self.list_seq_labels = []
+                self.list_seq_phones = []
+
+        logging.info("clean the rest of data")
+        if len(self.list_seq_features) > 0:
+            yield self.padding_list_seq_with_multilabels(
+                self.list_seq_features,
+                self.list_seq_labels,
+                self.list_seqs_phones)
+            self.list_seq_features = []
+            self.list_seq_labels = []
+            self.list_seq_phones = []
+
+    def __len__(self):
+        return self.size_dataset
+
+    @staticmethod
+    def padding_list_seq_with_multilabels(list_seqs_features,
+                                          list_seqs_labels,
+                                          list_seqs_phones,
+                                          dtype=np.float32,
+                                          value1=0.,
+                                          value2=0):
+        x, len_x = DataLoader.padding_list_seqs(
+            list_seqs=list_seqs_features,
+            dtype=dtype,
+            pad=value1)
+        y, len_y = DataLoader.padding_list_seqs(
+            list_seqs=list_seqs_labels,
+            dtype=np.int32,
+            pad=value2)
+        y2, len_y2 = DataLoader.padding_list_seqs(
+            list_seqs=list_seqs_phones,
+            dtype=np.int32,
+            pad=value2)
+
+        return [x, y, y2, len_x, len_y, len_y2]
 
 
 class LMDataLoader(DataLoader):

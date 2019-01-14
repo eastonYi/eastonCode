@@ -274,7 +274,6 @@ class LSTM_Model(object):
                                                               name=self.args.optimizer)
         return optimizer
 
-
     def variables(self, scope=None):
         '''get a list of the models's variables'''
         scope = scope if scope else self.name

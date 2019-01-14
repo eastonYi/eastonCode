@@ -37,13 +37,12 @@ class RNAModel(Seq2SeqModel):
                 features=tensors_input.feature_splits[id_gpu],
                 len_feas=tensors_input.len_fea_splits[id_gpu])
 
-            # if self.helper_type:
-            #     decoder.build_helper(
-            #         type=self.helper_type,
-            #         encoded=encoded,
-            #         len_encoded=len_encoded)
-
-            logits, decoded, len_decode = decoder(encoded, len_encoded)
+            if (not self.is_train) and (self.args.beam_size>1):
+                with tf.variable_scope(decoder.name or 'decoder'):
+                    # fake logits!
+                    decoded, logits = decoder.beam_decode_rerank(encoded, len_encoded)
+            else:
+                logits, decoded, len_decode = decoder(encoded, len_encoded)
 
             if self.is_train:
                 loss = 0
@@ -84,33 +83,29 @@ class RNAModel(Seq2SeqModel):
         tensors_input = self.build_infer_input()
 
         with tf.variable_scope(self.name, reuse=bool(self.__class__.num_Model)):
-            logits, len_logits, sample_id = self.build_single_graph(
+            logits, len_logits, decoded = self.build_single_graph(
                 id_gpu=0,
                 name_gpu=self.list_gpu_devices[0],
                 tensors_input=tensors_input)
-            # sample_id
-            # if sample_id.get_shape().ndims == 3:
-            #     sample_id = sample_id[:,:,0]
+            # decoded
+            # if decoded.get_shape().ndims == 3:
+            #     decoded = decoded[:,:,0]
 
             # ctc decode
-            # why not simply use the sample_id: https://distill.pub/2017/ctc/#inference
+            # why not simply use the decoded: https://distill.pub/2017/ctc/#inference
             if self.args.model.rerank:
-                logging.info('load language model object: {}'.format(self.args.lm_obj))
-                self.lm = self.args.lm_obj
-                decoded_sparse = self.rna_beam_search_rerank(logits, len_logits)
+                distribution = logits
 
             else:
-
                 decoded_sparse = self.rna_decode(logits, len_logits)
+                decoded = tf.sparse_to_dense(
+                    sparse_indices=decoded_sparse.indices,
+                    output_shape=decoded_sparse.dense_shape,
+                    sparse_values=decoded_sparse.values,
+                    default_value=0,
+                    validate_indices=True)
 
-            decoded = tf.sparse_to_dense(
-                sparse_indices=decoded_sparse.indices,
-                output_shape=decoded_sparse.dense_shape,
-                sparse_values=decoded_sparse.values,
-                default_value=0,
-                validate_indices=True)
-
-            distribution = tf.nn.softmax(logits)
+                distribution = tf.nn.softmax(logits)
 
         return decoded, tensors_input.shape_batch, distribution
 
@@ -145,7 +140,7 @@ class RNAModel(Seq2SeqModel):
 
     def ocd_loss(self, logits, len_logits, labels, decoded):
         """
-        the logits length is the sample_id length
+        the logits length is the decoded length
         the len_labels is useless(??)
         """
         from tfModels.OCDLoss import OCD_with_blank_loss
@@ -208,19 +203,25 @@ class RNAModel(Seq2SeqModel):
 
     def rna_beam_search_rerank(self, logits=None, len_logits=None):
         from tfTools.tfTools import pad_to_same
+        from tfTools.tfMath import sum_log
 
         beam_size = self.args.beam_size
+        lambda_rerank = self.args.lambda_rerank
+        batch_size = tf.shape(logits)[0]
         logits_timeMajor = tf.transpose(logits, [1, 0, 2])
 
         assert beam_size >= 1
-        list_decode, list_prob_log = tf.nn.ctc_beam_search_decoder(
+        list_decoded_sparse, list_prob_log = tf.nn.ctc_beam_search_decoder(
             logits_timeMajor,
             len_logits,
             beam_width=beam_size,
+            top_paths=beam_size,
             merge_repeated=False)
+        batch_size = tf.Print(batch_size, [list_prob_log], message='list_prob_log: ', summarize=1000)
 
         list_decoded = []
-        for decoded_sparse in list_decode:
+        for decoded_sparse in list_decoded_sparse:
+            # loop of top1, top2, ...
             decoded = tf.sparse_to_dense(
                 sparse_indices=decoded_sparse.indices,
                 output_shape=decoded_sparse.dense_shape,
@@ -228,18 +229,35 @@ class RNAModel(Seq2SeqModel):
                 default_value=0,
                 validate_indices=True)
             list_decoded.append(decoded)
-        decoded_beam, lens_beam = pad_to_same(list_decoded)
+
+        # [batch_size * beam_size, ...]
+        list_decoded = pad_to_same(list_decoded)
+        decoded_beam = tf.reshape(tf.concat(list_decoded, -1), [batch_size * beam_size, -1])
+        prob_beam = tf.reshape(tf.concat(list_prob_log, -1), [-1])
+        lens_beam = tf.reduce_sum(tf.to_int32(tf.not_equal(decoded_beam, 0)), -1)
 
         with tf.variable_scope(self.args.top_scope, reuse=True):
             with tf.variable_scope(self.args.lm_scope):
                 score_rerank, distribution = self.lm.decoder.score(decoded_beam, lens_beam)
 
-        scores = score_rerank + tf.convert_to_tensor(list_prob_log, dtype=score_rerank.dtype)
+        score_rerank *= lambda_rerank
+        scores = sum_log(score_rerank, prob_beam)
 
-        scores_sorted, sorted = tf.nn.top_k(scores, k=beam_size, sorted=True)
+        # [batch_size, beam_size, ...]
+        scores_sorted, sorted = tf.nn.top_k(tf.reshape(scores, [batch_size, beam_size]),
+                                            k=beam_size,
+                                            sorted=True)
+        # [batch_size * beam_size, ...]
+        base_indices = tf.reshape(tf.tile(tf.range(batch_size)[:, None],
+                                          multiples=[1, beam_size]), shape=[-1])
+        sorted = base_indices * beam_size + tf.reshape(sorted, shape=[-1])  # [batch_size * beam_size]
         preds_sorted = tf.gather(decoded_beam, sorted)
-        # logits_sorted = tf.gather(logits, sorted)
         score_rerank_sorted = tf.gather(score_rerank, sorted)
 
+        # [batch_size, beam_size, ...]
+        preds_sorted = tf.reshape(preds_sorted, shape=[batch_size, beam_size, -1])
+        scores_sorted = tf.reshape(scores_sorted, shape=[batch_size, beam_size])
+        score_rerank_sorted = tf.reshape(score_rerank_sorted, shape=[batch_size, beam_size])
+
         # return logits, final_preds, len_encoded
-        return preds_sorted, [scores_sorted, score_rerank_sorted]
+        return preds_sorted[:, 0, :], [preds_sorted, scores_sorted, score_rerank_sorted]

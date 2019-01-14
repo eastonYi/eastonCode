@@ -68,6 +68,48 @@ def save2tfrecord(dataset, dir_save, size_file=5000000):
 
     return
 
+def save2tfrecord_multilabel(dataset, dir_save, size_file=5000000):
+    """
+    use for multi-label
+    """
+
+    def _bytes_feature(value):
+        return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
+    num_token = 0
+    idx_file = -1
+    num_damaged_sample = 0
+
+    assert dataset.transform == False
+    for i, sample in enumerate(tqdm(dataset)):
+        if not sample:
+            num_damaged_sample += 1
+            continue
+        dim_feature = sample['feature'].shape[-1]
+        if (num_token // size_file) > idx_file:
+            idx_file = num_token // size_file
+            print('saving to file {}/{}.recode'.format(dir_save, idx_file))
+            writer = tf.python_io.TFRecordWriter(str(dir_save/'{}.recode'.format(idx_file)))
+
+        example = tf.train.Example(
+            features=tf.train.Features(
+                feature={'feature': _bytes_feature(sample['feature'].tostring()),
+                         'label': _bytes_feature(sample['label'].tostring()),
+                         'phone': _bytes_feature(sample['phone'].tostring())}
+            )
+        )
+        writer.write(example.SerializeToString())
+        num_token += len(sample['feature'])
+
+    with open(dir_save/'tfdata.info', 'w') as fw:
+        print('data_file {}'.format(dataset.list_files), file=fw)
+        print('dim_feature {}'.format(dim_feature), file=fw)
+        print('num_tokens {}'.format(num_token), file=fw)
+        print('size_dataset {}'.format(i-num_damaged_sample+1), file=fw)
+        print('damaged samples: {}'.format(num_damaged_sample), file=fw)
+
+    return
+
 
 def readTFRecord(dir_data, args, _shuffle=False, transform=False):
     """
@@ -100,6 +142,40 @@ def readTFRecord(dir_data, args, _shuffle=False, transform=False):
         feature = process_raw_feature(feature, args)
 
     return feature, label
+
+def readTFRecord_multilabel(dir_data, args, _shuffle=False, transform=False):
+    """
+    use for multi-label
+    """
+    list_filenames = fentch_filelist(dir_data)
+    if _shuffle:
+        shuffle(list_filenames)
+    else:
+        list_filenames.sort()
+
+    filename_queue = tf.train.string_input_producer(
+        list_filenames, num_epochs=None, shuffle=shuffle)
+
+    reader_tfRecord = tf.TFRecordReader()
+    _, serialized_example = reader_tfRecord.read(filename_queue)
+    features = tf.parse_single_example(
+        serialized_example,
+        features={'feature': tf.FixedLenFeature([], tf.string),
+                  # 'id': tf.FixedLenFeature([], tf.string)}
+                  'label': tf.FixedLenFeature([], tf.string),
+                  'phone': tf.FixedLenFeature([], tf.string)}
+    )
+
+    feature = tf.reshape(tf.decode_raw(features['feature'], tf.float32),
+        [-1, args.data.dim_feature])[:2000, :]
+    # id = tf.decode_raw(features['id'], tf.string)
+    label = tf.decode_raw(features['label'], tf.int32)
+    phone = tf.decode_raw(features['phone'], tf.int32)
+
+    if transform:
+        feature = process_raw_feature(feature, args)
+
+    return feature, label, phone
 
 
 def process_raw_feature(seq_raw_features, args):
@@ -136,11 +212,18 @@ class TFReader:
         self.args = args
         self.sess = None
 
-        self.feat, self.label = readTFRecord(
-            dir_tfdata,
-            args,
-            _shuffle=is_train,
-            transform=True)
+        if args.phone:
+            self.feat, self.label, self.phone = readTFRecord_multilabel(
+                dir_tfdata,
+                args,
+                _shuffle=is_train,
+                transform=True)
+        else:
+            self.feat, self.label = readTFRecord(
+                dir_tfdata,
+                args,
+                _shuffle=is_train,
+                transform=True)
 
     def __iter__(self):
         """It is only a demo! Using `fentch_batch_with_TFbuckets` in practice."""
@@ -187,6 +270,32 @@ class TFReader:
         seq_len_label = tf.reshape(list_outputs[3], [-1])
 
         return list_outputs[0], list_outputs[1], seq_len_feats, seq_len_label
+
+    def fentch_multi_label_batch_bucket(self):
+        """
+        the input tensor length is not equal,
+        so will add the len as a input tensor
+        list_inputs: [tensor1, tensor2]
+        added_list_inputs: [tensor1, tensor2, len_tensor1, len_tensor2]
+        """
+        list_inputs = [self.feat, self.label, self.phone,
+                       tf.shape(self.feat)[0], tf.shape(self.label)[0], tf.shape(self.phone)[0]]
+        _, list_outputs = tf.contrib.training.bucket_by_sequence_length(
+            input_length=tf.shape(self.feat)[0],
+            tensors=list_inputs,
+            batch_size=self.args.list_batch_size,
+            bucket_boundaries=self.args.list_bucket_boundaries,
+            num_threads=8,
+            bucket_capacities=[i*3 for i in self.args.list_batch_size],
+            capacity=2000,
+            dynamic_pad=True,
+            allow_smaller_final_batch=True)
+        seq_len_feats = tf.reshape(list_outputs[3], [-1])
+        seq_len_label = tf.reshape(list_outputs[4], [-1])
+        seq_len_phone = tf.reshape(list_outputs[5], [-1])
+
+        return list_outputs[0], list_outputs[1], list_outputs[2],\
+                seq_len_feats, seq_len_label, seq_len_phone
 
 # class TFReader:
 #     def __init__(self, dir_tfdata, args):
@@ -429,7 +538,7 @@ class TFReader:
 
 
 if __name__ == '__main__':
-    from configs.arguments import args
+    # from configs.arguments import args
     from tqdm import tqdm
     import sys
 

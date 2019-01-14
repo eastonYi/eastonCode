@@ -7,6 +7,7 @@ from tensorflow.python.util import nest
 from tfModels.tensor2tensor import dcommon_layers
 from tfModels.coldFusion import cold_fusion
 from tfSeq2SeqModels.tools.utils import dense
+import logging
 
 inf = 1e10
 
@@ -22,6 +23,7 @@ class RNADecoder(Decoder):
         self.num_cell_units_en = args.model.encoder.num_cell_units
         self.size_embedding = args.model.decoder.size_embedding
         self.dim_output = args.dim_output
+        self.beam_size = args.beam_size
         self.softmax_temperature = args.model.decoder.softmax_temperature
         if args.model.decoder.cold_fusion:
             from tfSeq2SeqModels.languageModel import LanguageModel
@@ -37,7 +39,11 @@ class RNADecoder(Decoder):
                 args=args.model.lm
             )
             self.num_cell_units_lm = args.model.decoder.num_cell_units_lm
+        if args.model.shallow_fusion or args.model.rerank:
+            logging.info('load language model object: {}'.format(args.lm_obj))
+            self.lm = args.lm_obj
         super().__init__(args, is_train, global_step, embed_table, name)
+
 
     def _decode(self, encoded, len_encoded):
         batch_size = tf.shape(len_encoded)[0]
@@ -134,7 +140,6 @@ class RNADecoder(Decoder):
         from tfTools.tfTools import alignment_shrink
 
         lambda_lm = self.args.lambda_lm
-        lambda_rerank = self.args.lambda_rerank
         beam_size = self.beam_size
         batch_size = tf.shape(len_encoded)[0]
 
@@ -144,7 +149,6 @@ class RNADecoder(Decoder):
                           multiples=[1, beam_size, 1, 1]) # [batch_size, beam_size, *, hidden_units]
         encoded = tf.reshape(encoded,
                              [batch_size * beam_size, -1, encoded.get_shape()[-1].value])
-        len_encoded = tf.reshape(tf.tile(len_encoded[:, None], multiples=[1, beam_size]), [-1])
         # [[<blk>, <blk>, ..., <blk>,]], shape: [batch_size * beam_size, 1]
         token_init = tf.fill([batch_size * beam_size, 1], self.args.sos_idx)
         logits_init = tf.zeros([batch_size * beam_size, 1, self.dim_output], dtype=tf.float32)
@@ -162,6 +166,7 @@ class RNADecoder(Decoder):
         # collect the initial states of lstms used in decoder.
         all_initial_states = {}
         all_initial_states["state_decoder"] = self.zero_state(batch_size * beam_size, dtype=tf.float32)
+        base_indices = tf.reshape(tf.tile(tf.range(batch_size)[:, None], multiples=[1, beam_size]), shape=[-1])
 
         def step(i, preds, scores, all_states, logits, cache):
             """
@@ -213,9 +218,7 @@ class RNADecoder(Decoder):
             scores = tf.reshape(scores, shape=[batch_size, beam_size * beam_size])
 
             _, k_indices = tf.nn.top_k(scores, k=beam_size)
-            base_indices = tf.reshape(tf.tile(tf.range(batch_size)[:, None], multiples=[1, beam_size]), shape=[-1])
-            base_indices *= beam_size * beam_size
-            k_indices = base_indices + tf.reshape(k_indices, shape=[-1])  # [batch_size * beam_size]
+            k_indices = base_indices * beam_size * beam_size + tf.reshape(k_indices, shape=[-1])  # [batch_size * beam_size]
             # Update scores.
             scores = tf.reshape(scores, [-1])
             scores = tf.gather(scores, k_indices)
@@ -239,30 +242,41 @@ class RNADecoder(Decoder):
                               tf.TensorShape([None, None, None, None])]
             )
 
-        # shrink the predicts
-        blank_id = self.dim_output-1
-        no_blank, len_seq = alignment_shrink(preds, blank_id)
-        # concate the <sos>, which is blank_id
-        no_blank = tf.concat([preds[:, 0:1], no_blank], -1)
-        len_seq += 1
+        preds, len_encoded = alignment_shrink(preds, self.dim_output-1)
+        preds = tf.concat([token_init, preds], -1)
+        len_encoded += 1
 
         with tf.variable_scope(self.args.top_scope, reuse=True):
             with tf.variable_scope(self.args.lm_scope):
-                score_rerank, distribution = self.lm.decoder.score(no_blank, len_seq)
+                score_rerank, distribution = self.lm.decoder.score(preds, len_encoded)
 
+        # [batch_size * beam_size, ...]
         preds = preds[:, 1:]
         logits = logits[:, 1:, :]
-        not_padding = tf.to_int32(tf.sequence_mask(len_encoded, maxlen=tf.shape(encoded)[1]))
+        not_padding = tf.to_int32(tf.sequence_mask(len_encoded, maxlen=tf.shape(preds)[1]))
         preds *= not_padding
-        score_rerank *= lambda_rerank
+
+        # [batch_size , beam_size, ...]
+        score_rerank = self.args.lambda_rerank * score_rerank
         scores += score_rerank
-        scores_sorted, sorted = tf.nn.top_k(scores, k=beam_size, sorted=True)
+
+        # [batch_size, beam_size, ...]
+        scores_sorted, sorted = tf.nn.top_k(tf.reshape(scores, [batch_size, beam_size]),
+                                            k=beam_size,
+                                            sorted=True)
+        # [batch_size * beam_size, ...]
+        base_indices = tf.reshape(tf.tile(tf.range(batch_size)[:, None],
+                                          multiples=[1, beam_size]), shape=[-1])
+        sorted = base_indices * beam_size + tf.reshape(sorted, shape=[-1])  # [batch_size * beam_size]
         preds_sorted = tf.gather(preds, sorted)
-        # logits_sorted = tf.gather(logits, sorted)
         score_rerank_sorted = tf.gather(score_rerank, sorted)
 
-        # return logits, final_preds, len_encoded
-        return [preds_sorted, scores_sorted, score_rerank_sorted], preds_sorted[0, None], len_encoded
+        # [batch_size, beam_size, ...]
+        preds_sorted = tf.reshape(preds_sorted, shape=[batch_size, beam_size, -1])
+        scores_sorted = tf.reshape(scores_sorted, shape=[batch_size, beam_size])
+        score_rerank_sorted = tf.reshape(score_rerank_sorted, shape=[batch_size, beam_size])
+
+        return preds_sorted[:, 0, :], [preds_sorted, scores_sorted, score_rerank_sorted]
 
     def create_cell(self):
         cell = dcommon_layers.lstm_cells(

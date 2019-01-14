@@ -27,7 +27,8 @@ class FCDecoder(Decoder):
             - the final state of the decoder as a possibly nested tupple
                 of [batch_size x ... ] tensors
         '''
-        dim_output = self.args.dim_output
+        # dim_output = self.args.dim_output
+        dim_output = self.args.dim_ctc_output if self.args.dim_ctc_output else self.args.dim_output
         logits = tf.layers.dense(
             inputs=encoded,
             units=dim_output,
