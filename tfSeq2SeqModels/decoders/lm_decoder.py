@@ -50,7 +50,7 @@ class LM_Decoder(object):
                 of [batch_size x ... ] tensors
         '''
         with tf.variable_scope(self.name or 'decoder'):
-
+            self.scope = tf.get_variable_scope()
             if self.is_train and self.keep_prob < 1.0:
                 inputs = tf.nn.dropout(inputs, self.keep_prob)
 

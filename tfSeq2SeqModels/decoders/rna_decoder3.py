@@ -138,10 +138,12 @@ class RNADecoder(Decoder):
         the input to te score is <sos> + tokens !!!
         """
         from tfTools.tfTools import alignment_shrink
+        # from tfTools.tfMath import sum_log
 
         lambda_lm = self.args.lambda_lm
         beam_size = self.beam_size
         batch_size = tf.shape(len_encoded)[0]
+        blank_id = self.dim_output-1
 
         # beam search Initialize
         # repeat each sample in batch along the batch axis [1,2,3,4] -> [1,1,2,2,3,3,4,4]
@@ -194,22 +196,34 @@ class RNADecoder(Decoder):
                 name='fully_connected')
 
             logits = tf.concat([logits, cur_logit[:, None]], 1)
+            z = tf.nn.log_softmax(cur_logit) # [batch*beam, size_output]
 
             # the langueage model infer
-            preds_emb = self.lm.decoder.embedding(preds)
+            if self.args.model.shallow_fusion:
+                # must use the `blank_id` to pad the pred otherwise the pad whould be preserved
+                preds, len_noblank = alignment_shrink(preds, blank_id, blank_id)
+                preds = tf.concat([token_init, preds], -1)
+                preds_emb = self.lm.decoder.embedding(preds)
 
-            with tf.variable_scope(self.args.top_scope, reuse=True):
-                with tf.variable_scope(self.args.lm_scope):
-                    lm_output, cache = self.lm.decoder.decoder_with_caching_impl(preds_emb, cache)
-                    logit_lm = dense(
-                        inputs=lm_output[:, -1, :],
-                        units=self.dim_output,
-                        kernel=tf.transpose(self.lm.decoder.fully_connected),
-                        use_bias=False)
+                with tf.variable_scope(self.args.top_scope, reuse=True):
+                    with tf.variable_scope(self.args.lm_scope):
+                        lm_output, cache = self.lm.decoder.decoder_with_caching_impl(preds_emb, cache)
+                        logit_lm = dense(
+                            inputs=lm_output[:, -1, :],
+                            units=self.dim_output,
+                            kernel=tf.transpose(self.lm.decoder.fully_connected),
+                            use_bias=False)
+                z_lm = lambda_lm * tf.nn.log_softmax(logit_lm) # [batch*beam, size_output]
+            else:
+                z_lm = tf.zeros_like(z)
+
+            # z = tf.Print(z, [preds], message='preds: ', summarize=100)
+            z_lm = tf.where(
+                tf.equal(tf.argmax(z, -1), blank_id),
+                x=tf.zeros_like(z_lm),
+                y=z_lm)
 
             # rank the combined scores
-            z = tf.nn.log_softmax(cur_logit) # [batch*beam, size_output]
-            z_lm = lambda_lm * tf.nn.log_softmax(logit_lm) # [batch*beam, size_output]
             next_scores, next_preds = tf.nn.top_k(z+z_lm, k=beam_size, sorted=True)
             next_preds = tf.to_int32(next_preds)
 
@@ -230,7 +244,7 @@ class RNADecoder(Decoder):
 
             return i+1, preds, scores, all_states, logits, cache
 
-        _, preds, scores, _, logits, cache = tf.while_loop(
+        _, preds, score_org, _, logits, cache = tf.while_loop(
             cond=lambda i, *_: tf.less(i, tf.shape(encoded)[1]),
             body=step,
             loop_vars=[0, token_init, scores, all_initial_states, logits_init, cache_init],
@@ -242,13 +256,14 @@ class RNADecoder(Decoder):
                               tf.TensorShape([None, None, None, None])]
             )
 
-        preds, len_encoded = alignment_shrink(preds, self.dim_output-1)
+        preds, len_encoded = alignment_shrink(preds, blank_id)
         preds = tf.concat([token_init, preds], -1)
-        len_encoded += 1
 
         with tf.variable_scope(self.args.top_scope, reuse=True):
             with tf.variable_scope(self.args.lm_scope):
+                # the len_encoded not counts the token_init
                 score_rerank, distribution = self.lm.decoder.score(preds, len_encoded)
+                # score_rerank = tf.Print(score_rerank, [score_rerank], message='score_rerank: ', summarize=1000)
 
         # [batch_size * beam_size, ...]
         preds = preds[:, 1:]
@@ -258,7 +273,8 @@ class RNADecoder(Decoder):
 
         # [batch_size , beam_size, ...]
         score_rerank = self.args.lambda_rerank * score_rerank
-        scores += score_rerank
+        # scores += score_rerank
+        scores = score_org + score_rerank
 
         # [batch_size, beam_size, ...]
         scores_sorted, sorted = tf.nn.top_k(tf.reshape(scores, [batch_size, beam_size]),
@@ -268,15 +284,18 @@ class RNADecoder(Decoder):
         base_indices = tf.reshape(tf.tile(tf.range(batch_size)[:, None],
                                           multiples=[1, beam_size]), shape=[-1])
         sorted = base_indices * beam_size + tf.reshape(sorted, shape=[-1])  # [batch_size * beam_size]
+
         preds_sorted = tf.gather(preds, sorted)
         score_rerank_sorted = tf.gather(score_rerank, sorted)
+        score_org_sorted = tf.gather(score_org, sorted)
 
         # [batch_size, beam_size, ...]
         preds_sorted = tf.reshape(preds_sorted, shape=[batch_size, beam_size, -1])
         scores_sorted = tf.reshape(scores_sorted, shape=[batch_size, beam_size])
         score_rerank_sorted = tf.reshape(score_rerank_sorted, shape=[batch_size, beam_size])
+        score_org_sorted = tf.reshape(score_org_sorted, shape=[batch_size, beam_size])
 
-        return preds_sorted[:, 0, :], [preds_sorted, scores_sorted, score_rerank_sorted]
+        return preds_sorted[:, 0, :], [preds_sorted, score_org_sorted, score_rerank_sorted]
 
     def create_cell(self):
         cell = dcommon_layers.lstm_cells(

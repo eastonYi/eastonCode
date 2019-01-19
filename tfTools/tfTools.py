@@ -293,7 +293,7 @@ def acoustic_shrink(distribution_acoustic, len_acoustic, dim_output):
     return acoustic_shrinked, len_no_blank
 
 
-def alignment_shrink(align, blank_id):
+def alignment_shrink(align, blank_id, pad_id=0):
     """
     //treat the alignment as a sparse tensor where the pad is blank.
     get the indices, values and new_shape
@@ -310,7 +310,7 @@ def alignment_shrink(align, blank_id):
     def step(i, noblank):
         noblank_i = tf.reshape(tf.gather(align[i],
                                          tf.where(tf.not_equal(align[i], blank_id))), [-1])
-        pad = tf.zeros([max_len-tf.shape(noblank_i)[0]], dtype=align.dtype)
+        pad = tf.ones([max_len-tf.shape(noblank_i)[0]], dtype=align.dtype) * pad_id
         noblank_i = tf.concat([noblank_i, pad], -1)
         noblank = tf.concat([noblank, noblank_i[None, :]], 0)
 

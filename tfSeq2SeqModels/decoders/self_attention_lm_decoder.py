@@ -180,9 +180,11 @@ class SelfAttentionDecoder(LM_Decoder):
         score batch sentences
         utilize the `decoder_impl`
         return batch_score(log scale)
+        note: the pad score should be removed after the tf.log! otherwise the pad is 0 and
+        tf.log(0.0) would pull down the sentence score!
+        the `len_seqs` not counts the <sos> !!!
         '''
 
-        eps = 1e-10
         decoder_input = tf.to_int32(decoder_input)
         # input is `<sos> + sent`
         decoder_input_embed = tf.nn.embedding_lookup(self.embed_table, decoder_input[:, :-1])
@@ -196,9 +198,10 @@ class SelfAttentionDecoder(LM_Decoder):
         distribution = tf.nn.softmax(logits, -1)
         # output is `sent + <eos>`
         scores = tf.gather_nd(distribution, self.tensor2indices(decoder_input[:, 1:]))
-        mask = tf.sequence_mask(len_seqs, maxlen=tf.shape(decoder_input)[1]-1, dtype=scores.dtype)
-        scores = scores * mask + eps
+
         scores_log = tf.log(scores)
+        mask = tf.sequence_mask(len_seqs, maxlen=tf.reduce_max(len_seqs), dtype=scores.dtype)
+        scores_log = scores_log * mask
         scores_log = tf.reduce_sum(scores_log, -1)
 
         return scores_log, distribution

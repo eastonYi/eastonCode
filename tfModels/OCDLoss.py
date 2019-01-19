@@ -147,6 +147,7 @@ def optimal_completion_targets_with_blank_v2(hyp, ref, blank_id):
     '''
     OCD targsts for RNA structure where blanks are inserted between the ref labels
     we add the blank id as the end column
+    randomly add balnk to the optimal_targets
     '''
     batch_size, len_hyp = hyp.shape
     _, len_ref = ref.shape
@@ -235,6 +236,7 @@ def OCD_loss(hyp, ref, vocab_size):
 def OCD_with_blank_loss(hyp, ref, vocab_size):
     """
     make sure the padding id is 0!
+    randomly add blank_id as optimal target
     """
     from tfTools.tfTools import batch_pad
     blank_id = vocab_size - 1
@@ -378,17 +380,31 @@ def test_OCD_loss():
      [ 0.    0.    0.    0.    0.    0.    0.    0.    0.    0.    1.]
      [ 0.    0.    0.    0.    0.    0.    0.    0.    0.    0.    1.]]
 
+    decoded[0]: [524 156 241 464 280 299]
+    labels[0]:  [524 42  239 241 101 464 280 299]
+    optimal_targets[0]: [
+    [524 0 0 0 0 0 0 0 0 0 0]
+    [0 42 0 0 0 0 0 0 0 0 0]
+    [0 42 239 0 0 0 0 0 0 0 0]
+    [0 42 239 241 101 0 0 0 0 0 0]
+    [0 42 239 241 101 464 280 0 0 0 0]
+    [0 0 0 0 0 0 0 299 0 0 0]
     """
-    list_vocab = list('_SATRYUNDP-')
+    # list_vocab = list('_SATRYUNDP-')
 
-    value_hyp = np.array([[list_vocab.index(s) for s in 'SATRAPY-'],
-                          [list_vocab.index(s) for s in 'SATRAP-_']],
+    # value_hyp = np.array([[list_vocab.index(s) for s in 'SATRAPY-'],
+    #                       [list_vocab.index(s) for s in 'SATRAP-_']],
+    #                      dtype=np.int32)
+    #
+    # value_ref = np.array([[list_vocab.index(s) for s in 'SUNDAY-'],
+    #                       [list_vocab.index(s) for s in 'SUNDA-_']],
+    #                      dtype=np.int32)
+    list_vocab = list('_abcdefgmnop-')
+    value_hyp = np.array([[list_vocab.index(s) for s in 'abcdef']],
                          dtype=np.int32)
 
-    value_ref = np.array([[list_vocab.index(s) for s in 'SUNDAY-'],
-                          [list_vocab.index(s) for s in 'SUNDA-_']],
+    value_ref = np.array([[list_vocab.index(s) for s in 'amncodef']], #
                          dtype=np.int32)
-
     # print(optimal_completion_targets(value_hyp, value_ref))
 
     # build graph
@@ -553,5 +569,5 @@ def test_OCD_with_blank_loss():
 if __name__ == '__main__':
     # test_ED_tf()
     # test_ED_batch()
-    # test_OCD_loss()
-    test_OCD_with_blank_loss()
+    test_OCD_loss()
+    # test_OCD_with_blank_loss()

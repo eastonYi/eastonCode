@@ -33,10 +33,9 @@ class CONV(Encoder):
         size_feat = self.args.data.dim_input
 
         # x = tf.expand_dims(features, -1)
-        size_batch  = tf.shape(features)[0]
-        size_length = tf.shape(features)[1]
+        size_batch = tf.shape(features)[0]
         size_feat = int(size_feat/3)
-        x = tf.reshape(features, [size_batch, size_length, size_feat, 3])
+        x = tf.reshape(features, [size_batch, -1, size_feat, 3])
         # the first cnn layer
         x = self.normal_conv(
             inputs=x,
@@ -45,7 +44,27 @@ class CONV(Encoder):
             stride=(2,2),
             padding='SAME',
             use_relu=True,
-            name="conv",
+            name="conv1",
+            w_initializer=None,
+            norm_type='layer')
+        x = self.normal_conv(
+            inputs=x,
+            filter_num=num_filters,
+            kernel=(3,3),
+            stride=(2,2),
+            padding='SAME',
+            use_relu=True,
+            name="conv2",
+            w_initializer=None,
+            norm_type='layer')
+        x = self.normal_conv(
+            inputs=x,
+            filter_num=num_filters,
+            kernel=(3,3),
+            stride=(2,2),
+            padding='SAME',
+            use_relu=True,
+            name="conv3",
             w_initializer=None,
             norm_type='layer')
         x = conv_lstm(
@@ -53,10 +72,9 @@ class CONV(Encoder):
             kernel_size=(3,3),
             filters=num_filters)
 
-        size_feat = int(np.ceil(size_feat/2))*num_filters
-        size_length  = tf.cast(tf.ceil(tf.cast(size_length,tf.float32)/2), tf.int32)
-        len_sequence = tf.cast(tf.ceil(tf.cast(len_feas,tf.float32)/2), tf.int32)
-        x = tf.reshape(x, [size_batch, size_length, size_feat])
+        size_feat = int(np.ceil(size_feat/8))*num_filters
+        len_sequence = tf.cast(tf.ceil(tf.cast(len_feas,tf.float32)/8), tf.int32)
+        x = tf.reshape(x, [size_batch, -1, size_feat])
 
         outputs = x
         output_seq_lengths = len_sequence
@@ -67,17 +85,7 @@ class CONV(Encoder):
             num_cell_units=num_cell_units,
             use_residual=use_residual,
             dropout=dropout,
-            name='blstm_1')
-        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'HALF', 1)
-
-        outputs = self.blstm(
-            hidden_output=outputs,
-            len_feas=output_seq_lengths,
-            num_cell_units=num_cell_units,
-            use_residual=use_residual,
-            dropout=dropout,
-            name='blstm_2')
-        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'HALF', 2)
+            name='blstm')
 
         return outputs, output_seq_lengths
 

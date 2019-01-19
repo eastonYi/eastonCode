@@ -18,8 +18,6 @@ class CTCLMModel(Seq2SeqModel):
         self.name = name
         self.gen_decoder2 = decoder2
         self.size_embedding = args.model.decoder2.size_embedding
-        # the fc decdoer use the dim_ctc_output
-        args.dim_ctc_output = len(args.phone.token2idx)
         self.embedding_tabel = self.get_embedding(
             embed_table=None,
             size_input=args.dim_output,
@@ -63,20 +61,18 @@ class CTCLMModel(Seq2SeqModel):
 
             # whether to shrink the hidden or the acoustic
             if self.args.model.shrink_hidden:
-                # recommand
-                hidden_shrinked, len_phone, acoustic_shrinked = acoustic_hidden_shrink(
+                hidden_shrinked, len_no_blank = acoustic_hidden_shrink(
                     distribution_acoustic=distribution_acoustic,
                     hidden=hidden_output,
                     len_acoustic=len_acoustic,
-                    dim_output=self.args.dim_ctc_output,
+                    dim_output=self.args.dim_output,
                     hidden_size=self.args.model.encoder.num_cell_units,
                     num_avg=self.args.model.num_avg)
-                phone = tf.argmax(acoustic_shrinked, -1)
             else:
-                distribution_no_blank, len_phone = acoustic_shrink(
+                distribution_no_blank, len_no_blank = acoustic_shrink(
                     distribution_acoustic=distribution_acoustic,
                     len_acoustic=len_acoustic,
-                    dim_output=self.args.dim_ctc_output)
+                    dim_output=self.args.dim_output)
                 hidden_shrinked = distribution_no_blank
 
             if (not self.is_train) and (self.args.beam_size>1):
@@ -85,25 +81,23 @@ class CTCLMModel(Seq2SeqModel):
                     logging.info('beam search with language model ...')
                     with tf.variable_scope(decoder.name or 'decoder'):
                         if self.args.model.rerank:
-                            decoded_beam, decoded, len_decode = decoder.beam_decode_rerank(
+                            logits, decoded, len_decode = decoder.beam_decode_rerank(
                                 hidden_shrinked,
-                                len_phone)
+                                len_no_blank)
                         else:
                             logits, decoded, len_decode = decoder.beam_decode_lm(
                                 hidden_shrinked,
-                                len_phone)
+                                len_no_blank)
                 else:
                     logging.info('beam search ...')
                     with tf.variable_scope(decoder.name or 'decoder'):
                         logits, decoded, len_decode = decoder.beam_decode(
                             hidden_shrinked,
-                            len_phone)
+                            len_no_blank)
             else:
                 # train phrase
                 print('greedy search ...')
-                logits, decoded, len_decode = decoder(hidden_shrinked, len_phone)
-                decoded_beam = tf.no_op()
-
+                logits, decoded, len_decode = decoder(hidden_shrinked, len_no_blank)
             if self.is_train:
                 ocd_loss = self.ocd_loss(
                     logits=logits,
@@ -112,12 +106,13 @@ class CTCLMModel(Seq2SeqModel):
                     decoded=decoded,
                     len_decode=len_decode)
 
-                ctc_loss = self.ctc_loss(
-                    logits=acoustic,
-                    len_logits=len_acoustic,
-                    labels=tensors_input.phone_splits[id_gpu],
-                    len_labels=tensors_input.len_phone_splits[id_gpu])
-                loss = ocd_loss + ctc_loss
+                if self.args.model.ctc_loss_for_acoutic:
+                    ctc_loss = self.ctc_loss(
+                        logits=acoustic,
+                        len_logits=len_acoustic,
+                        labels=tensors_input.label_splits[id_gpu],
+                        len_labels=tensors_input.len_label_splits[id_gpu])
+                    loss = ocd_loss + ctc_loss
 
                 if self.args.musk_update:
                     self.idx_update = self.deserve_idx(
@@ -137,44 +132,25 @@ class CTCLMModel(Seq2SeqModel):
 
         if self.is_train:
             return loss, gradients, \
-            [decoded, tensors_input.label_splits[id_gpu], distribution_acoustic, len_acoustic, phone, len_phone, ctc_loss, ocd_loss]
+            [decoded, tensors_input.label_splits[id_gpu], distribution_acoustic, len_acoustic, len_no_blank, hidden_shrinked, ctc_loss, ocd_loss]
             # return loss, gradients, tf.no_op()
         else:
-            return decoded, [decoded_beam, phone]
+
+            return logits, len_acoustic, decoded
 
     def build_infer_graph(self):
         tensors_input = self.build_infer_input()
 
         with tf.variable_scope(self.name, reuse=bool(self.__class__.num_Model)):
-            decoded, infer_log = self.build_single_graph(
+            logits, len_logits, sample_id = self.build_single_graph(
                 id_gpu=0,
                 name_gpu=self.list_gpu_devices[0],
                 tensors_input=tensors_input)
 
-        return decoded, tensors_input.shape_batch, infer_log
+            # distribution = tf.nn.softmax(logits)
+            distribution = logits
 
-    def build_tf_input(self):
-        """
-        stand training input
-        """
-        from collections import namedtuple
-        tensors_input = namedtuple('tensors_input',
-            'feature_splits, label_splits, phone_splits, \
-             len_fea_splits, len_label_splits, len_phone_splits, \
-             shape_batch')
-
-        with tf.device(self.center_device):
-            with tf.name_scope("inputs"):
-                # split input data alone batch axis to gpus
-                tensors_input.feature_splits = tf.split(self.batch[0], self.num_gpus, name="feature_splits")
-                tensors_input.label_splits = tf.split(self.batch[1], self.num_gpus, name="label_splits")
-                tensors_input.phone_splits = tf.split(self.batch[2], self.num_gpus, name="phone_splits")
-                tensors_input.len_fea_splits = tf.split(self.batch[3], self.num_gpus, name="len_fea_splits")
-                tensors_input.len_label_splits = tf.split(self.batch[4], self.num_gpus, name="len_label_splits")
-                tensors_input.len_phone_splits = tf.split(self.batch[5], self.num_gpus, name="len_phone_splits")
-        tensors_input.shape_batch = tf.shape(self.batch[0])
-
-        return tensors_input
+        return sample_id, tensors_input.shape_batch, distribution
 
     def ocd_loss(self, logits, len_logits, labels, decoded, len_decode):
         """
@@ -187,7 +163,6 @@ class CTCLMModel(Seq2SeqModel):
             hyp=decoded,
             ref=labels,
             vocab_size=self.args.dim_output)
-
         try:
             crossent = tf.nn.softmax_cross_entropy_with_logits_v2(
                 labels=optimal_distributions,
@@ -202,15 +177,16 @@ class CTCLMModel(Seq2SeqModel):
             maxlen=tf.shape(logits)[1],
             dtype=logits.dtype)
 
-        if self.args.model.utt_level_loss:
-            loss = tf.reduce_sum(crossent * pad_mask, -1) # utt-level
-        else:
-            loss = tf.reduce_sum(crossent * pad_mask)/tf.reduce_sum(pad_mask) # token-level
+        loss = tf.reduce_sum(crossent * pad_mask, -1) # utt-level
 
-        if self.args.model.decoder2.confidence_penalty:
-            ls_loss = self.args.model.decoder2.confidence_penalty * \
+        if self.args.model.decoder2.confidence_penalty > 0: # utt-level
+            cp_loss = self.args.model.decoder2.confidence_penalty * \
                         confidence_penalty(logits, len_decode)
-            loss += ls_loss
+            loss += cp_loss
+
+        if not self.args.model.utt_level_loss: # token-level
+            loss /= tf.reduce_sum(pad_mask, -1)
+            # loss = tf.Print(loss, [loss], message='ocd loss: ', summarize=1000)
 
         return loss
 
@@ -299,38 +275,35 @@ def acoustic_hidden_shrink(distribution_acoustic, hidden, len_acoustic, dim_outp
     batch_size = tf.size(len_no_blank)
     max_len = tf.reduce_max(len_no_blank)
     hidden_shrinked_init = tf.zeros([1, max_len, hidden_size])
-    acoustic_shrinked_init = tf.zeros([1, max_len, dim_output])
 
     # average the hidden of n frames
     if num_avg == 3:
         hidden = (hidden + \
                 tf.concat([hidden[:, 1:, :], hidden[:, -1:, :]], 1) + \
                 tf.concat([hidden[:, :1, :], hidden[:, :-1, :]], 1)) / num_avg
+    elif num_avg == 5:
+        hidden = (hidden + \
+                tf.concat([hidden[:, 1:, :], hidden[:, -1:, :]], 1) + \
+                tf.concat([hidden[:, 2:, :], hidden[:, -2:, :]], 1) + \
+                tf.concat([hidden[:, :2, :], hidden[:, :-2, :]], 1) + \
+                tf.concat([hidden[:, :1, :], hidden[:, :-1, :]], 1)) / num_avg
 
-    def step(i, hidden_shrinked, acoustic_shrinked):
+    def step(i, hidden_shrinked):
         # loop over the batch
         shrinked = tf.gather(hidden[i], tf.reshape(tf.where(no_blank[i]>0), [-1]))
         shrinked_paded = pad_to(shrinked, max_len, axis=0)
         hidden_shrinked = tf.concat([hidden_shrinked,
                                        tf.expand_dims(shrinked_paded, 0)], 0)
 
-        # acoustic shirinked
-        shrinked = tf.gather(distribution_acoustic[i], tf.reshape(tf.where(no_blank[i]>0), [-1]))
-        shrinked_paded = pad_to(shrinked, max_len, axis=0)
-        acoustic_shrinked = tf.concat([acoustic_shrinked,
-                                       tf.expand_dims(shrinked_paded, 0)], 0)
+        return i+1, hidden_shrinked
 
-        return i+1, hidden_shrinked, acoustic_shrinked
-
-    i, hidden_shrinked, acoustic_shrinked = tf.while_loop(
+    i, hidden_shrinked = tf.while_loop(
         cond=lambda i, *_: tf.less(i, batch_size),
         body=step,
-        loop_vars=[0, hidden_shrinked_init, acoustic_shrinked_init],
+        loop_vars=[0, hidden_shrinked_init],
         shape_invariants=[tf.TensorShape([]),
-                          tf.TensorShape([None, None, hidden_size]),
-                          tf.TensorShape([None, None, dim_output])]
+                          tf.TensorShape([None, None, hidden_size])]
     )
     hidden_shrinked = hidden_shrinked[1:, :, :]
-    acoustic_shrinked = acoustic_shrinked[1:, :, :]
 
-    return hidden_shrinked, len_no_blank, acoustic_shrinked
+    return hidden_shrinked, len_no_blank

@@ -9,10 +9,11 @@ def confidence_penalty(logits, len_logits):
     H = - \sum(P * logP)
     loss = -H = \sum(P * logP)
     sequence-level loss
+    the minimal value of cp is negative and is conditioned on the dim
     """
     with tf.name_scope("confidence_penalty"):
         real_probs = tf.nn.softmax(logits)+epsilon
-        neg_entropy = tf.reduce_sum(real_probs * tf.log(real_probs), axis=-1)
+        neg_entropy = tf.reduce_sum(real_probs * tf.log(real_probs), -1)
         pad_mask = tf.sequence_mask(
             len_logits,
             maxlen=tf.shape(logits)[1],
