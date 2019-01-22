@@ -206,6 +206,22 @@ class SelfAttentionDecoder(LM_Decoder):
 
         return scores_log, distribution
 
+    def forward(self, preds, cache, stop_gradient=False):
+        preds_emb = tf.nn.embedding_lookup(self.embed_table, preds)
+    
+        decoder_output, cache = self.decoder_with_caching_impl(preds_emb, cache)
+        logit = dense(
+            inputs=decoder_output[:, -1, :],
+            units=self.dim_output,
+            kernel=tf.transpose(self.fully_connected),
+            use_bias=False)
+
+        if stop_gradient:
+            logit = tf.stop_gradient(logit)
+            cache = tf.stop_gradient(cache)
+
+        return logit, cache
+
     @staticmethod
     def tensor2indices(batch_sents):
         """

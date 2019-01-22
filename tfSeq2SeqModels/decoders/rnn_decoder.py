@@ -95,6 +95,37 @@ class RNNDecoder(Decoder):
         Returns:
             an RNNCell object'''
 
+
+    def _get_lstm_cell(self):
+        if self.rnn_mode == 'BASIC':
+            return tf.contrib.rnn.BasicLSTMCell(
+                self.num_cell_units, forget_bias=0.0, state_is_tuple=True,
+                reuse=not self.is_train)
+        if self.rnn_mode == 'BLOCK':
+            return tf.contrib.rnn.LSTMBlockCell(
+                self.num_cell_units, forget_bias=0.0)
+        if self.rnn_mode == 'CUDNN':
+            return tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(self.num_cell_units)
+        raise ValueError("rnn_mode %s not supported" % self.rnn_mode)
+
+    def make_cell(self):
+        cell = self._get_lstm_cell()
+        if self.is_train and self.keep_prob < 1:
+            cell = tf.contrib.rnn.DropoutWrapper(
+                cell, output_keep_prob=self.keep_prob)
+        return cell
+
+    def make_multi_cell(self, num_layers):
+        list_cells = [self.make_cell() for _ in range(self.num_layers-1)]
+        cell_proj = tf.contrib.rnn.OutputProjectionWrapper(
+            cell=self.make_cell(),
+            output_size=self.dim_output)
+        list_cells.append(cell_proj)
+        multi_cell = tf.contrib.rnn.MultiRNNCell(list_cells, state_is_tuple=True)
+
+        return multi_cell
+
+
     def create_DecoderCell_and_initState(self, num_cell_units, encoded, len_encoded, batch_size):
         if self.beam_size <= 1:
             #create the rnn cell

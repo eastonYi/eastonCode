@@ -25,21 +25,7 @@ class RNADecoder(Decoder):
         self.dim_output = args.dim_output
         self.beam_size = args.beam_size
         self.softmax_temperature = args.model.decoder.softmax_temperature
-        if args.model.decoder.cold_fusion:
-            from tfSeq2SeqModels.languageModel import LanguageModel
-            from tfSeq2SeqModels.decoders.speller import Speller as decoder
-
-            args.model.lm.dim_output = args.dim_output
-            args.model.lm.list_gpus = args.list_gpus
-            self.lm = LanguageModel(
-                tensor_global_step=global_step,
-                encoder=None,
-                decoder=decoder,
-                is_train=False,
-                args=args.model.lm
-            )
-            self.num_cell_units_lm = args.model.decoder.num_cell_units_lm
-        if args.model.shallow_fusion or args.model.rerank:
+        if args.model.shallow_fusion or args.model.rerank or args.model.cold_fusion:
             logging.info('load language model object: {}'.format(args.lm_obj))
             self.lm = args.lm_obj
         super().__init__(args, is_train, global_step, embed_table, name)

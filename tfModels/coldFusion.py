@@ -30,4 +30,19 @@ def cold_fusion(logit_lm, state_decoder, num_cell_units, dim_output):
         biases_initializer=None,
         scope='CF_layer_2')
 
-    return tf.nn.softmax(logits_coldfusion)
+    return logits_coldfusion
+
+
+def simple_cold_fusion(logit_lm, logit, dim_output):
+    """
+    """
+    state_coldfusion = tf.concat([logit_lm, logit], -1)
+
+    logits_coldfusion = fully_connected(
+        inputs=state_coldfusion,
+        num_outputs=dim_output,
+        activation_fn=tf.identity,
+        biases_initializer=None,
+        scope='CF_FC')
+
+    return logits_coldfusion

@@ -197,3 +197,8 @@ class LanguageModel(Seq2SeqModel):
         """
         with tf.variable_scope(self.decoder.scope, reuse=True):
             return self.decoder.score(decoder_input, len_seqs)
+
+    def forward(self, preds, cache, stop_gradient=False):
+        with tf.variable_scope(self.decoder.scope, reuse=True):
+
+            return self.decoder.forward(preds, cache, stop_gradient=False)

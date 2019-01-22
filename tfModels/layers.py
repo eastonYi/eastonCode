@@ -131,6 +131,44 @@ def build_cell(num_units, num_layers, is_train, cell_type,
     return MultiRNNCell(list_cell) if num_layers > 1 else list_cell[0]
 
 
+'''
+fentch from the tensoeflow ptb demo
+_get_lstm_cell
+make_cell
+make_multi_cell
+'''
+def _get_lstm_cell(num_cell_units, is_train, rnn_mode='BLOCK'):
+    if rnn_mode == 'BASIC':
+        return tf.contrib.rnn.BasicLSTMCell(
+            num_cell_units, forget_bias=0.0, state_is_tuple=True,
+            reuse=not is_train)
+    if rnn_mode == 'BLOCK':
+        return tf.contrib.rnn.LSTMBlockCell(
+            num_cell_units, forget_bias=0.0)
+    if rnn_mode == 'CUDNN':
+        return tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(num_cell_units)
+    raise ValueError("rnn_mode %s not supported" % rnn_mode)
+
+
+def make_cell(num_cell_units, is_train, rnn_mode, keep_prob):
+    cell = _get_lstm_cell(num_cell_units, is_train, rnn_mode)
+    if is_train and keep_prob < 1:
+        cell = tf.contrib.rnn.DropoutWrapper(
+            cell, output_keep_prob=keep_prob)
+    return cell
+
+
+def make_multi_cell(num_cell_units, is_train, rnn_mode, keep_prob, num_layers, dim_output):
+    list_cells = [make_cell(num_cell_units, is_train, rnn_mode, keep_prob) for _ in range(num_layers-1)]
+    cell_proj = tf.contrib.rnn.OutputProjectionWrapper(
+        cell=make_cell(num_cell_units, is_train, rnn_mode, keep_prob),
+        output_size=dim_output)
+    list_cells.append(cell_proj)
+    multi_cell = tf.contrib.rnn.MultiRNNCell(list_cells, state_is_tuple=True)
+
+    return multi_cell
+
+
 def cell_forward(cell, inputs, index_layer=0, initial_state=None):
     # the variable created in `tf.nn.dynamic_rnn`, not in cell
     with tf.variable_scope("lstm"):
