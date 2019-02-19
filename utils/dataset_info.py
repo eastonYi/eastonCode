@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import os
 import numpy as np
 from tqdm import tqdm
+import sys
 
 
 def get_tfdata_info(dir_tfdata, len_dataset, args, idx_init=150, dir_save_info='data'):
@@ -56,6 +57,9 @@ def get_tfdata_info(dir_tfdata, len_dataset, args, idx_init=150, dir_save_info='
         idx = next_idx(idx, energy)
         if not idx:
             break
+        if idx == idx_init:
+            print('enlarge the idx_init!')
+            sys.exit()
         list_boundary.append(list_length[idx])
         list_batchsize.append(int(M / list_length[idx]))
 

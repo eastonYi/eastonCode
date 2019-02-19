@@ -293,6 +293,71 @@ def acoustic_shrink(distribution_acoustic, len_acoustic, dim_output):
     return acoustic_shrinked, len_no_blank
 
 
+def acoustic_hidden_shrink(distribution_acoustic, hidden, len_acoustic, blank_id, hidden_size, num_avg=1):
+    """
+    filter the hidden where blank_id dominants in distribution_acoustic.
+    the blank_id default to be dim_output-1.
+    incompletely tested
+    the len_no_blank will be set one if distribution_acoustic is all blank dominanted
+    shrink the hidden instead of distribution_acoustic
+    """
+    no_blank = tf.to_int32(tf.not_equal(tf.argmax(distribution_acoustic, -1), blank_id))
+    mask_acoustic = tf.sequence_mask(len_acoustic, maxlen=tf.shape(distribution_acoustic)[1], dtype=no_blank.dtype)
+    no_blank *= mask_acoustic
+    len_no_blank = tf.reduce_sum(no_blank, -1)
+
+    batch_size = tf.shape(no_blank)[0]
+    seq_len = tf.shape(no_blank)[1]
+
+    # the patch, the length of shrunk hidden is at least 1
+    no_blank = tf.where(
+        tf.not_equal(len_no_blank, 0),
+        no_blank,
+        tf.concat([tf.ones([batch_size, 1], dtype=tf.int32),
+                   tf.zeros([batch_size, seq_len-1], dtype=tf.int32)], 1)
+    )
+    len_no_blank = tf.where(
+        tf.not_equal(len_no_blank, 0),
+        len_no_blank,
+        tf.ones_like(len_no_blank, dtype=tf.int32)
+    )
+
+    max_len = tf.reduce_max(len_no_blank)
+    hidden_shrunk_init = tf.zeros([1, max_len, hidden_size])
+
+    # average the hidden of n frames
+    if num_avg == 3:
+        hidden = (hidden + \
+                tf.concat([hidden[:, 1:, :], hidden[:, -1:, :]], 1) + \
+                tf.concat([hidden[:, :1, :], hidden[:, :-1, :]], 1)) / num_avg
+    elif num_avg == 5:
+        hidden = (hidden + \
+                tf.concat([hidden[:, 1:, :], hidden[:, -1:, :]], 1) + \
+                tf.concat([hidden[:, 2:, :], hidden[:, -2:, :]], 1) + \
+                tf.concat([hidden[:, :2, :], hidden[:, :-2, :]], 1) + \
+                tf.concat([hidden[:, :1, :], hidden[:, :-1, :]], 1)) / num_avg
+
+    def step(i, hidden_shrunk):
+        # loop over the batch
+        shrunk = tf.gather(hidden[i], tf.reshape(tf.where(no_blank[i]>0), [-1]))
+        shrunk_paded = pad_to(shrunk, max_len, axis=0)
+        hidden_shrunk = tf.concat([hidden_shrunk,
+                                       tf.expand_dims(shrunk_paded, 0)], 0)
+
+        return i+1, hidden_shrunk
+
+    i, hidden_shrunk = tf.while_loop(
+        cond=lambda i, *_: tf.less(i, batch_size),
+        body=step,
+        loop_vars=[0, hidden_shrunk_init],
+        shape_invariants=[tf.TensorShape([]),
+                          tf.TensorShape([None, None, hidden_size])]
+    )
+    hidden_shrunk = hidden_shrunk[1:, :, :]
+
+    return hidden_shrunk, len_no_blank
+
+
 def alignment_shrink(align, blank_id, pad_id=0):
     """
     //treat the alignment as a sparse tensor where the pad is blank.

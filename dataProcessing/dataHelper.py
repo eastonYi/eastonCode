@@ -106,13 +106,12 @@ class ASR_csv_DataSet(ASRDataSet):
 
 
 class ASR_scp_DataSet(ASRDataSet):
-    def __init__(self, f_scp, f_trans, f_vocab, args, _shuffle, transform):
+    def __init__(self, f_scp, f_trans, args, _shuffle, transform):
         """
         Args:
             f_scp: the scp file consists of paths to feature data
             f_trans: the scp file consists of id and trans
             f_id2label: the normalized transcripts
-            f_vocab: the vocab of the transcripts
         """
         from dataProcessing.ark import ArkReader
         self.list_files = [f_scp]

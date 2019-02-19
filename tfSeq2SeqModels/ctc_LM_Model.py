@@ -3,9 +3,10 @@ import logging
 import sys
 
 from tfModels.tools import choose_device
-from tfTools.tfTools import acoustic_shrink, pad_to, dense_sequence_to_sparse
+from tfTools.tfTools import pad_to, dense_sequence_to_sparse
 from tfSeq2SeqModels.seq2seqModel import Seq2SeqModel
 from tfModels.regularization import confidence_penalty
+
 
 logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format='%(levelname)s(%(filename)s:%(lineno)d): %(message)s')
 
@@ -59,21 +60,27 @@ class CTCLMModel(Seq2SeqModel):
             # used to guide the shrinking of the hidden_output
             distribution_acoustic = tf.nn.softmax(acoustic)
 
-            # whether to shrink the hidden or the acoustic
-            if self.args.model.shrink_hidden:
-                hidden_shrinked, len_no_blank = acoustic_hidden_shrink(
+            # whether to shrink the hidden or the acoutic distribution
+            if not self.args.model.shrink_hidden:
+                hidden_output = distribution_acoustic
+
+            if self.args.model.avg_repeated:
+                from tfModels.CTCShrink import acoustic_hidden_shrink_tf
+                hidden_shrunk, len_no_blank = acoustic_hidden_shrink_tf(
                     distribution_acoustic=distribution_acoustic,
                     hidden=hidden_output,
                     len_acoustic=len_acoustic,
-                    dim_output=self.args.dim_output,
+                    blank_id=self.args.dim_output-1,
+                    num_post=self.args.model.num_post)
+            else:
+                from tfTools.tfTools import acoustic_hidden_shrink
+                hidden_shrunk, len_no_blank = acoustic_hidden_shrink(
+                    distribution_acoustic=distribution_acoustic,
+                    hidden=hidden_output,
+                    len_acoustic=len_acoustic,
+                    blank_id=self.args.dim_output-1,
                     hidden_size=self.args.model.encoder.num_cell_units,
                     num_avg=self.args.model.num_avg)
-            else:
-                distribution_no_blank, len_no_blank = acoustic_shrink(
-                    distribution_acoustic=distribution_acoustic,
-                    len_acoustic=len_acoustic,
-                    dim_output=self.args.dim_output)
-                hidden_shrinked = distribution_no_blank
 
             if (not self.is_train) and (self.args.beam_size>1):
                 # infer phrase
@@ -82,22 +89,22 @@ class CTCLMModel(Seq2SeqModel):
                     with tf.variable_scope(decoder.name or 'decoder'):
                         if self.args.model.rerank:
                             logits, decoded, len_decode = decoder.beam_decode_rerank(
-                                hidden_shrinked,
+                                hidden_shrunk,
                                 len_no_blank)
                         else:
                             logits, decoded, len_decode = decoder.beam_decode_lm(
-                                hidden_shrinked,
+                                hidden_shrunk,
                                 len_no_blank)
                 else:
                     logging.info('beam search ...')
                     with tf.variable_scope(decoder.name or 'decoder'):
                         logits, decoded, len_decode = decoder.beam_decode(
-                            hidden_shrinked,
+                            hidden_shrunk,
                             len_no_blank)
             else:
                 # train phrase
                 print('greedy search ...')
-                logits, decoded, len_decode = decoder(hidden_shrinked, len_no_blank)
+                logits, decoded, len_decode = decoder(hidden_shrunk, len_no_blank)
             if self.is_train:
                 ocd_loss = self.ocd_loss(
                     logits=logits,
@@ -106,13 +113,12 @@ class CTCLMModel(Seq2SeqModel):
                     decoded=decoded,
                     len_decode=len_decode)
 
-                if self.args.model.ctc_loss_for_acoutic:
-                    ctc_loss = self.ctc_loss(
-                        logits=acoustic,
-                        len_logits=len_acoustic,
-                        labels=tensors_input.label_splits[id_gpu],
-                        len_labels=tensors_input.len_label_splits[id_gpu])
-                    loss = ocd_loss + ctc_loss
+                ctc_loss = self.ctc_loss(
+                    logits=acoustic,
+                    len_logits=len_acoustic,
+                    labels=tensors_input.label_splits[id_gpu],
+                    len_labels=tensors_input.len_label_splits[id_gpu])
+                loss = ocd_loss + ctc_loss
 
                 if self.args.musk_update:
                     self.idx_update = self.deserve_idx(
@@ -132,7 +138,7 @@ class CTCLMModel(Seq2SeqModel):
 
         if self.is_train:
             return loss, gradients, \
-            [decoded, tensors_input.label_splits[id_gpu], distribution_acoustic, len_acoustic, len_no_blank, hidden_shrinked, ctc_loss, ocd_loss]
+            [decoded, tensors_input.label_splits[id_gpu], distribution_acoustic, len_acoustic, len_no_blank, hidden_shrunk, ctc_loss, ocd_loss]
             # return loss, gradients, tf.no_op()
         else:
 
@@ -147,7 +153,6 @@ class CTCLMModel(Seq2SeqModel):
                 name_gpu=self.list_gpu_devices[0],
                 tensors_input=tensors_input)
 
-            # distribution = tf.nn.softmax(logits)
             distribution = logits
 
         return sample_id, tensors_input.shape_batch, distribution
@@ -184,9 +189,8 @@ class CTCLMModel(Seq2SeqModel):
                         confidence_penalty(logits, len_decode)
             loss += cp_loss
 
-        if not self.args.model.utt_level_loss: # token-level
+        if self.args.model.token_level_ocd: # token-level
             loss /= tf.reduce_sum(pad_mask, -1)
-            # loss = tf.Print(loss, [loss], message='ocd loss: ', summarize=1000)
 
         return loss
 
@@ -194,7 +198,6 @@ class CTCLMModel(Seq2SeqModel):
         """
         No valid path found: It is possible that no valid path is found if the
         activations for the targets are zero.
-        ctc_merge_repeated is always False
         return batch shape loss
         """
         with tf.name_scope("ctc_loss"):
@@ -205,7 +208,7 @@ class CTCLMModel(Seq2SeqModel):
                 labels_sparse,
                 logits,
                 sequence_length=len_logits,
-                ctc_merge_repeated=False,
+                ctc_merge_repeated=self.args.model.avg_repeated,
                 ignore_longer_outputs_than_inputs=True,
                 time_major=False)
 
@@ -240,70 +243,3 @@ class CTCLMModel(Seq2SeqModel):
                         "embedding", [size_input, size_embedding], dtype=tf.float32)
 
         return embed_table
-
-
-def acoustic_hidden_shrink(distribution_acoustic, hidden, len_acoustic, dim_output, hidden_size, num_avg=1):
-    """
-    filter the hidden where blank_id dominants in distribution_acoustic.
-    the blank_id default to be dim_output-1.
-    incompletely tested
-    the len_no_blank will be set one if distribution_acoustic is all blank dominanted
-    shrink the hidden instead of distribution_acoustic
-    """
-    blank_id = dim_output - 1
-    no_blank = tf.to_int32(tf.not_equal(tf.argmax(distribution_acoustic, -1), blank_id))
-    mask_acoustic = tf.sequence_mask(len_acoustic, maxlen=tf.shape(distribution_acoustic)[1], dtype=no_blank.dtype)
-    no_blank *= mask_acoustic
-    len_no_blank = tf.reduce_sum(no_blank, -1)
-
-    batch_size = tf.shape(no_blank)[0]
-    seq_len = tf.shape(no_blank)[1]
-
-    # the patch, the length of shrinked hidden is at least 1
-    no_blank = tf.where(
-        tf.not_equal(len_no_blank, 0),
-        no_blank,
-        tf.concat([tf.ones([batch_size, 1], dtype=tf.int32),
-                   tf.zeros([batch_size, seq_len-1], dtype=tf.int32)], 1)
-    )
-    len_no_blank = tf.where(
-        tf.not_equal(len_no_blank, 0),
-        len_no_blank,
-        tf.ones_like(len_no_blank, dtype=tf.int32)
-    )
-
-    batch_size = tf.size(len_no_blank)
-    max_len = tf.reduce_max(len_no_blank)
-    hidden_shrinked_init = tf.zeros([1, max_len, hidden_size])
-
-    # average the hidden of n frames
-    if num_avg == 3:
-        hidden = (hidden + \
-                tf.concat([hidden[:, 1:, :], hidden[:, -1:, :]], 1) + \
-                tf.concat([hidden[:, :1, :], hidden[:, :-1, :]], 1)) / num_avg
-    elif num_avg == 5:
-        hidden = (hidden + \
-                tf.concat([hidden[:, 1:, :], hidden[:, -1:, :]], 1) + \
-                tf.concat([hidden[:, 2:, :], hidden[:, -2:, :]], 1) + \
-                tf.concat([hidden[:, :2, :], hidden[:, :-2, :]], 1) + \
-                tf.concat([hidden[:, :1, :], hidden[:, :-1, :]], 1)) / num_avg
-
-    def step(i, hidden_shrinked):
-        # loop over the batch
-        shrinked = tf.gather(hidden[i], tf.reshape(tf.where(no_blank[i]>0), [-1]))
-        shrinked_paded = pad_to(shrinked, max_len, axis=0)
-        hidden_shrinked = tf.concat([hidden_shrinked,
-                                       tf.expand_dims(shrinked_paded, 0)], 0)
-
-        return i+1, hidden_shrinked
-
-    i, hidden_shrinked = tf.while_loop(
-        cond=lambda i, *_: tf.less(i, batch_size),
-        body=step,
-        loop_vars=[0, hidden_shrinked_init],
-        shape_invariants=[tf.TensorShape([]),
-                          tf.TensorShape([None, None, hidden_size])]
-    )
-    hidden_shrinked = hidden_shrinked[1:, :, :]
-
-    return hidden_shrinked, len_no_blank

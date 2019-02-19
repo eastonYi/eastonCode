@@ -3,10 +3,9 @@ contains the general recurrent decoder class'''
 
 import logging
 import tensorflow as tf
-from tfModels.tensor2tensor import common_attention
 from .lm_decoder import LM_Decoder
 from ..tools.utils import shift_right, embedding, residual, multihead_attention, ff_hidden, dense
-from tfModels.tensor2tensor import dcommon_layers
+from tfModels.tensor2tensor import common_attention, dcommon_layers
 
 
 class SelfAttentionDecoder(LM_Decoder):
@@ -208,7 +207,7 @@ class SelfAttentionDecoder(LM_Decoder):
 
     def forward(self, preds, cache, stop_gradient=False):
         preds_emb = tf.nn.embedding_lookup(self.embed_table, preds)
-    
+
         decoder_output, cache = self.decoder_with_caching_impl(preds_emb, cache)
         logit = dense(
             inputs=decoder_output[:, -1, :],

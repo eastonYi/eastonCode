@@ -45,6 +45,7 @@ def make_vocab(fpath, fname):
     word2cnt = Counter()
     for l in codecs.open(fpath, 'r', 'utf-8'):
         words = l.strip().split()[1:]
+        # words = l.strip().split(',')[1].split()
         word2cnt.update(Counter(words))
     word2cnt.update({"<pad>": 1000000000,
                      "<unk>": 100000000})
