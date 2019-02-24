@@ -78,6 +78,11 @@ def optimal_completion_targets(hyp, ref):
     http://arxiv.org/abs/1810.01398
     this is for no eos
     return the 3d mask tensor of the distance table
+    the function only used to compute the target distributions, no gradients need
+    to pass through, so the py_func is OK here.
+
+    NOTATION:
+        the `hyp` should not be None, i.e. `len_hyp` should larger than 0
     '''
     batch_size, len_hyp = hyp.shape
     _, len_ref = ref.shape
@@ -207,6 +212,7 @@ def OCD_loss(hyp, ref, vocab_size):
     """
     make sure the padding id is 0!
     ref: * * * * <eos> <pad> <pad>
+    the gradient is stoped at mask_min
     """
     mask_min = tf.py_func(optimal_completion_targets, [hyp, ref], tf.int32)
 

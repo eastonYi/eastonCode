@@ -66,22 +66,29 @@ class CTCLMModel(Seq2SeqModel):
 
             blank_id = self.args.dim_ctc_output-1 if self.args.dim_ctc_output else self.args.dim_output-1
             if self.args.model.avg_repeated:
-                from tfModels.CTCShrink import acoustic_hidden_shrink_tf
-                hidden_shrunk, len_no_blank = acoustic_hidden_shrink_tf(
+                # from tfModels.CTCShrink import acoustic_hidden_shrink_tf
+                # hidden_shrunk, len_no_blank = acoustic_hidden_shrink_tf(
+                #     distribution_acoustic=distribution_acoustic,
+                #     hidden=hidden_output,
+                #     len_acoustic=len_acoustic,
+                #     blank_id=blank_id,
+                #     num_post=self.args.model.num_post)
+                from tfModels.CTCShrink import acoustic_hidden_shrink_v2
+                hidden_shrunk, len_no_blank = acoustic_hidden_shrink_v2(
                     distribution_acoustic=distribution_acoustic,
                     hidden=hidden_output,
                     len_acoustic=len_acoustic,
                     blank_id=blank_id,
-                    num_post=self.args.model.num_post)
-            else:
-                from tfTools.tfTools import acoustic_hidden_shrink
-                hidden_shrunk, len_no_blank = acoustic_hidden_shrink(
-                    distribution_acoustic=distribution_acoustic,
-                    hidden=hidden_output,
-                    len_acoustic=len_acoustic,
-                    blank_id=blank_id,
-                    hidden_size=self.args.model.encoder.num_cell_units,
-                    num_avg=self.args.model.num_avg)
+                    frame_expand=self.args.model.frame_expand)
+            # else:
+            #     from tfTools.tfTools import acoustic_hidden_shrink
+            #     hidden_shrunk, len_no_blank = acoustic_hidden_shrink(
+            #         distribution_acoustic=distribution_acoustic,
+            #         hidden=hidden_output,
+            #         len_acoustic=len_acoustic,
+            #         blank_id=blank_id,
+            #         hidden_size=self.args.model.encoder.num_cell_units,
+            #         num_avg=self.args.model.num_avg)
 
             if (not self.is_train) and (self.args.beam_size>1):
                 # infer phrase
@@ -172,6 +179,7 @@ class CTCLMModel(Seq2SeqModel):
         """
         the logits length is the sample_id length
         return batch shape loss
+        if `len_logits` is all zero. then outputs the 0
         """
         from tfModels.OCDLoss import OCD_loss
 

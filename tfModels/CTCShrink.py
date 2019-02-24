@@ -101,12 +101,11 @@ def acoustic_hidden_shrink(distribution_acoustic, hidden, len_acoustic, blank_id
 
     return acoustic_shrinked, np.array(list_len, np.int32)
 
-
-def acoustic_hidden_shrink_tf(distribution_acoustic, hidden, len_acoustic, blank_id, num_post):
+def acoustic_hidden_shrink_tf(distribution_acoustic, hidden, len_acoustic, blank_id, num_post, num_frames):
     """
     NOTATION: the gradient will not pass over the input vars
     """
-    hidden_shrinked, len_no_blank = tf.py_func(acoustic_hidden_shrink, [distribution_acoustic, hidden, len_acoustic, blank_id, num_post],
+    hidden_shrinked, len_no_blank = tf.py_func(acoustic_hidden_shrink, [distribution_acoustic, hidden, len_acoustic, blank_id, num_post, num_frames],
                       (tf.float32, tf.int32))
     hidden_shrinked.set_shape([None, None, 4*hidden.get_shape()[-1]])
     len_no_blank.set_shape([None])
@@ -121,7 +120,7 @@ def analysis_alignments(alignments, len_acoustic, blank_id):
     input:
         alignments: [b, t]
     output:
-        repeated_frames: [b, u]
+        num_repeated_frames: [b, u]
         len_label: [b]
         musk_repeated: [bxu, t]
     """
@@ -154,21 +153,100 @@ def analysis_alignments(alignments, len_acoustic, blank_id):
         lists_num_tokens.append(list_num_tokens)
         list_token_len.append(len(list_num_tokens))
 
-    repeated_frames = pad_to_same(lists_num_tokens)
+    if sum(list_token_len) == 0:
+        lists_num_tokens[-1] = [1]
+        list_token_len[-1] = 1
+        list_token_musks.append(np.zeros_like(align, dtype=np.float32))
+
+    num_repeated_frames = pad_to_same(lists_num_tokens)
     len_label = np.array(list_token_len, np.int32)
     musk_repeated = pad_to_same(list_token_musks)
 
-    return repeated_frames, len_label, musk_repeated
+    return num_repeated_frames, len_label, musk_repeated
 
 def analysis_alignments_tf(alignments, len_acoustic, blank_id):
-    repeated_frames, len_label, musk_repeated = tf.py_func(
+    num_repeated_frames, len_label, musk_repeated = tf.py_func(
         analysis_alignments, [alignments, len_acoustic, blank_id],
         (tf.int32, tf.int32, tf.int32))
-    repeated_frames.set_shape([None, None])
+    num_repeated_frames.set_shape([None, None])
     len_label.set_shape([None])
     musk_repeated.set_shape([None, alignments.get_shape()[-1]])
 
-    return repeated_frames, len_label, musk_repeated
+    return num_repeated_frames, len_label, musk_repeated
+
+
+def acoustic_hidden_shrink_v2(distribution_acoustic, hidden, len_acoustic, blank_id, frame_expand):
+    """
+    alignments: [b, t]
+    hidden: [b x t x h]
+    num_repeated_frames: [b x u]
+    len_label: [b]
+    musk_repeated: [bxu, t]
+
+    asserts : 1. step_in_batch should be ended as bxu-1
+    """
+    alignments = tf.argmax(distribution_acoustic, -1)
+    num_repeated_frames, len_label, musk_repeated = analysis_alignments_tf(alignments, len_acoustic, blank_id)
+    batch_size = tf.shape(hidden)[0]
+    maxlen_sent = tf.shape(num_repeated_frames)[1]
+    size_hidden = hidden.get_shape()[-1] * frame_expand
+    size_hidden_tf = frame_expand * tf.convert_to_tensor(size_hidden)
+    frames_shrinked_init = tf.zeros([1, size_hidden])
+    acoustic_shrinked_init = tf.zeros([1, maxlen_sent, size_hidden])
+    # hidden = tf.Print(hidden,[tf.shape(num_repeated_frames), tf.shape(len_label), tf.shape(musk_repeated)], message='musk_repeated: ', summarize=1000)
+
+    def sent(i, step_in_batch, acoustic_shrinked):
+
+        def step(j, i, step_in_batch, frames_shrinked):
+            # step_in_batch = tf.Print(step_in_batch,[i, j, step_in_batch], message='step_in_batch: ', summarize=1000)
+            # step_in_batch = tf.Print(step_in_batch,[musk_repeated[step_in_batch]], message='musk_repeated: ', summarize=1000)
+            indices = tf.where(musk_repeated[step_in_batch] > 0)
+            repeated_frames = tf.reshape(tf.gather(hidden[i], indices[:, 0]), [-1])
+            # mean, _ = tf.nn.moments(repeated_frames, 0)
+
+            null = tf.zeros([size_hidden_tf], dtype=tf.float32)
+            frame = tf.concat([repeated_frames, null], 0)[:size_hidden]
+            # frame = tf.concat([tf.reshape(repeated_frames[:frame_expand], [-1]), null], 0)
+            frames_shrinked = tf.concat([frames_shrinked,
+                                         frame[None, :]], 0)
+
+            return j+1, i, step_in_batch+1, frames_shrinked
+
+        _, _, step_in_batch, frames_shrinked = tf.while_loop(
+            cond=lambda j, *_: tf.less(j, len_label[i]),
+            body=step,
+            loop_vars=[0, i, step_in_batch, frames_shrinked_init],
+            shape_invariants=[tf.TensorShape([]),
+                              tf.TensorShape([]),
+                              tf.TensorShape([]),
+                              tf.TensorShape([None, size_hidden])])
+        frames_shrinked = tf.concat([frames_shrinked[1:],
+                                     tf.zeros([maxlen_sent-len_label[i], size_hidden])], 0)
+        acoustic_shrinked = tf.concat([acoustic_shrinked,
+                                       frames_shrinked[None, :]], 0)
+
+        return i+1, step_in_batch, acoustic_shrinked
+
+    _, _, acoustic_shrinked = tf.while_loop(
+        cond=lambda i, *_: tf.less(i, batch_size),
+        body=sent,
+        loop_vars=[0, 0, acoustic_shrinked_init],
+        shape_invariants=[tf.TensorShape([]),
+                          tf.TensorShape([]),
+                          tf.TensorShape([None, None, size_hidden])])
+    acoustic_shrinked = acoustic_shrinked[1:]
+
+    return acoustic_shrinked, len_label
+
+# def acoustic_hidden_shrink_v2_tf(distribution_acoustic, hidden, len_acoustic, blank_id, frame_expand):
+#     alignments = tf.argmax(distribution_acoustic, -2)
+#     hidden_shrinked, len_no_blank = tf.py_func(
+#         acoustic_hidden_shrink_v2, [alignments, hidden, len_acoustic, blank_id, frame_expand],
+#         (tf.float32, tf.int32))
+#     hidden_shrinked.set_shape([None, None, 4*hidden.get_shape()[-1]])
+#     len_no_blank.set_shape([None])
+#
+#     return hidden_shrinked, len_no_blank
 
 
 def constrain_repeated(alignments, hidden, len_acoustic, blank_id):
@@ -180,7 +258,7 @@ def constrain_repeated(alignments, hidden, len_acoustic, blank_id):
 
     asserts : 1. step_in_batch should be ended as bxu-1
     """
-    repeated_frames, len_label, musk_repeated = analysis_alignments_tf(alignments, len_acoustic, blank_id)
+    num_repeated_frames, len_label, musk_repeated = analysis_alignments_tf(alignments, len_acoustic, blank_id)
     batch_size = tf.shape(hidden)[0]
 
     def sent(i, step_in_batch, loss):
