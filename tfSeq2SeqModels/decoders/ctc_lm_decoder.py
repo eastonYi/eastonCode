@@ -26,8 +26,10 @@ class CTC_LM_Decoder(RNADecoder):
         self.num_layers = args.model.decoder2.num_layers
         self.num_cell_units_de = args.model.decoder2.num_cell_units
         self.dropout = args.model.decoder2.dropout
-        self.num_cell_units_en = args.model.encoder.num_cell_units \
-                                if args.model.shrink_hidden else args.dim_output
+        dim_ctc_output = args.dim_ctc_output if args.dim_ctc_output else args.dim_output
+        dim_encoder_output = args.model.encoder.bottleneck if args.model.encoder.bottleneck else args.model.encoder.num_cell_units
+        self.num_cell_units_en = 12*dim_encoder_output \
+                                if args.model.shrink_hidden else dim_ctc_output
         self.size_embedding = args.model.decoder2.size_embedding
         self.softmax_temperature = args.model.decoder2.softmax_temperature
 
@@ -39,6 +41,10 @@ class CTC_LM_Decoder(RNADecoder):
         blank_id = self.dim_output-1
         token_init = tf.fill([batch_size, 1], blank_id)
         logits_init = tf.zeros([batch_size, 1, self.dim_output], dtype=tf.float32)
+
+        encoded = tf.concat([encoded,
+                            tf.concat([encoded[:, 1:, :], encoded[:, -1:, :]], 1),
+                            tf.concat([encoded[:, :1, :], encoded[:, :-1, :]], 1)], -1)
 
         self.cell = make_multi_cell(
             num_cell_units=self.num_cell_units_de,

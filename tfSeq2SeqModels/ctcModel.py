@@ -45,6 +45,16 @@ class CTCModel(Seq2SeqModel):
                     labels=tensors_input.label_splits[id_gpu],
                     len_labels=tensors_input.len_label_splits[id_gpu])
 
+                if self.args.model.constrain_repeated:
+                    from tfModels.CTCShrink import repeated_constrain_loss
+                    
+                    loss_constrain = repeated_constrain_loss(
+                        distribution_acoustic=logits,
+                        hidden=hidden_output,
+                        len_acoustic=len_hidden_output,
+                        blank_id=self.args.dim_output-1)
+                    loss += self.args.model.constrain_repeated * loss_constrain
+
                 with tf.name_scope("gradients"):
                     gradients = self.optimizer.compute_gradients(loss)
 
@@ -104,6 +114,7 @@ class CTCModel(Seq2SeqModel):
             loss += self.args.model.policy_learning * rl_loss
 
         return loss
+
 
     def build_infer_graph(self):
         # cerate input tensors in the cpu

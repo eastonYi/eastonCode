@@ -39,11 +39,11 @@ class CTC_LM_SA_Decoder(RNADecoder):
         """
         need to output score
         """
-        batch_size = tf.shape(len_encoded)[0]
-        blank_id = self.dim_output-1
-        token_init = tf.fill([batch_size, 1], blank_id)
-        logits_init = tf.zeros([batch_size, 1, self.dim_output], dtype=tf.float32)
-        cache_decoder_init = tf.zeros([batch_size, 0, self.num_blocks, self.num_cell_units])
+        output = self.decoder_impl(encoded)
+        logits = tf.layers.dense(
+            inputs=output,
+            units=self.dim_output,
+            use_bias=False)
 
         def step(i, preds, cache_decoder, logits):
             preds_emb = self.embedding(preds)
@@ -67,22 +67,69 @@ class CTC_LM_SA_Decoder(RNADecoder):
 
             return i+1, preds, cache_decoder, logits
 
-        _, preds, _, logits = tf.while_loop(
-            cond=lambda i, *_: tf.less(i, tf.shape(encoded)[1]),
-            body=step,
-            loop_vars=[0, token_init, cache_decoder_init, logits_init],
-            shape_invariants=[tf.TensorShape([]),
-                              tf.TensorShape([None, None]),
-                              tf.TensorShape([None, None, None, None]),
-                              tf.TensorShape([None, None, self.dim_output])]
-            )
-
-        logits = logits[:, 1:, :]
-        preds = preds[:, 1:]
-        not_padding = tf.to_int32(tf.sequence_mask(len_encoded, maxlen=tf.shape(encoded)[1]))
-        preds = tf.multiply(tf.to_int32(preds), not_padding)
 
         return logits, preds, len_encoded
+
+    def decoder_impl(self, decoder_input):
+        # Positional Encoding
+        decoder_input += common_attention.add_timing_signal_1d(decoder_input)
+        # Dropout
+        decoder_output = tf.layers.dropout(decoder_input,
+                                           rate=self.residual_dropout_rate,
+                                           training=self.is_train)
+        # Bias for preventing peeping later information
+        self_attention_bias = common_attention.attention_bias_lower_triangle(tf.shape(decoder_input)[1])
+
+        # Blocks
+        with tf.variable_scope("block_{}".format(0)):
+            # Multihead Attention (self-attention)
+            decoder_output = multihead_attention(
+                                      query_antecedent=decoder_output,
+                                      memory_antecedent=None,
+                                      bias=self_attention_bias,
+                                      total_key_depth=self.num_cell_units,
+                                      total_value_depth=self.num_cell_units,
+                                      num_heads=self.num_heads,
+                                      dropout_rate=self.attention_dropout_rate,
+                                      output_depth=self.num_cell_units,
+                                      name="decoder_self_attention",
+                                      summaries=True)
+            # Feed Forward
+            decoder_output = residual(decoder_output,
+                                      ff_hidden(
+                                          decoder_output,
+                                          hidden_size=4 * self.num_cell_units,
+                                          output_size=self.num_cell_units,
+                                          activation=self._ff_activation),
+                                      dropout_rate=self.residual_dropout_rate)
+
+        for i in range(1, self.num_blocks-1, 1):
+            # print('here!!!!!!!{}'.format(i))
+            with tf.variable_scope("block_{}".format(i)):
+                # Multihead Attention (self-attention)
+                decoder_output = residual(decoder_output,
+                                          multihead_attention(
+                                              query_antecedent=decoder_output,
+                                              memory_antecedent=None,
+                                              bias=self_attention_bias,
+                                              total_key_depth=self.num_cell_units,
+                                              total_value_depth=self.num_cell_units,
+                                              num_heads=self.num_heads,
+                                              dropout_rate=self.attention_dropout_rate,
+                                              output_depth=self.num_cell_units,
+                                              name="decoder_self_attention",
+                                              summaries=True),
+                                          dropout_rate=self.residual_dropout_rate)
+                # Feed Forward
+                decoder_output = residual(decoder_output,
+                                          ff_hidden(
+                                              decoder_output,
+                                              hidden_size=4 * self.num_cell_units,
+                                              output_size=self.num_cell_units,
+                                              activation=self._ff_activation),
+                                          dropout_rate=self.residual_dropout_rate)
+
+        return decoder_output
 
     def decoder_with_caching_impl(self, decoder_input, decoder_cache):
         # Positional Encoding
@@ -90,7 +137,7 @@ class CTC_LM_SA_Decoder(RNADecoder):
         # Dropout
         decoder_output = tf.layers.dropout(decoder_input,
                                            rate=self.residual_dropout_rate,
-                                           training=self.is_train)
+                                            training=self.is_train)
         new_cache = []
 
         # rest block without residual

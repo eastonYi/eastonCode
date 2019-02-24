@@ -104,8 +104,8 @@ class Seq2SeqModel(LSTM_Model):
 
         if self.is_train:
             # no_op is preserved for debug info to pass
-            return loss, gradients, tf.no_op()
-            # return loss, gradients, [optimal_targets, len_decode, sample_id, tensors_input.label_splits[id_gpu], optimal_distributions]
+            # return loss, gradients, tf.no_op()
+            return loss, gradients, [len_decode, sample_id, tensors_input.label_splits[id_gpu]]
         else:
             return logits, len_encoded, sample_id
 
@@ -120,6 +120,7 @@ class Seq2SeqModel(LSTM_Model):
 
         if sample_id.get_shape().ndims == 3:
             sample_id = sample_id[:,:,0]
+
         return sample_id, tensors_input.shape_batch, tf.no_op()
 
     def ce_loss(self, logits, labels, len_labels):

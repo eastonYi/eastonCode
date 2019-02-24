@@ -49,6 +49,12 @@ class CTC_LM_SA_Decoder(RNADecoder):
             preds_emb = self.embedding(preds)
             decoder_input = tf.concat([encoded[:, :i+1, :], preds_emb], axis=-1)
             decoder_input.set_shape([None, None, self.num_cell_units_en+self.size_embedding])
+            decoder_input = tf.layers.dense(
+                inputs=decoder_input,
+                units=self.size_embedding,
+                activation=None,
+                use_bias=False,
+                name='prev_fc')
 
             decoder_output, cache_decoder = self.decoder_with_caching_impl(decoder_input, cache_decoder)
             cur_logit = tf.layers.dense(
@@ -93,36 +99,8 @@ class CTC_LM_SA_Decoder(RNADecoder):
                                            training=self.is_train)
         new_cache = []
 
-        # rest block without residual
-        with tf.variable_scope("block_{}".format(0)):
-            # Multihead Attention (self-attention)
-            # the caching_impl only need to calculate decoder_output[:, -1:, :]!
-            decoder_output = multihead_attention(
-                                          query_antecedent=decoder_output,
-                                          memory_antecedent=None,
-                                          bias=None,
-                                          total_key_depth=self.num_cell_units,
-                                          total_value_depth=self.num_cell_units,
-                                          num_heads=self.num_heads,
-                                          dropout_rate=self.attention_dropout_rate,
-                                          num_queries=1,
-                                          output_depth=self.num_cell_units,
-                                          name="decoder_self_attention",
-                                          summaries=False)
-
-            # Feed Forward
-            decoder_output = residual(decoder_output,
-                                      ff_hidden(
-                                          decoder_output,
-                                          hidden_size=4 * self.num_cell_units,
-                                          output_size=self.num_cell_units,
-                                          activation=tf.nn.relu),
-                                      dropout_rate=self.residual_dropout_rate)
-
-            decoder_output = tf.concat([decoder_cache[:, :, 0, :], decoder_output], axis=1)
-            new_cache.append(decoder_output[:, :, None, :])
-        # rest block with residual
-        for i in range(1, self.num_blocks, 1):
+        # Blocks
+        for i in range(self.num_blocks):
             with tf.variable_scope("block_{}".format(i)):
                 # Multihead Attention (self-attention)
                 # the caching_impl only need to calculate decoder_output[:, -1:, :]!

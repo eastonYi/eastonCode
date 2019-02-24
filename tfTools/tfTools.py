@@ -342,7 +342,7 @@ def acoustic_hidden_shrink(distribution_acoustic, hidden, len_acoustic, blank_id
         shrunk = tf.gather(hidden[i], tf.reshape(tf.where(no_blank[i]>0), [-1]))
         shrunk_paded = pad_to(shrunk, max_len, axis=0)
         hidden_shrunk = tf.concat([hidden_shrunk,
-                                       tf.expand_dims(shrunk_paded, 0)], 0)
+                                   tf.expand_dims(shrunk_paded, 0)], 0)
 
         return i+1, hidden_shrunk
 

@@ -2,7 +2,7 @@ import tensorflow as tf
 import logging
 import sys
 
-from tfModels.tools import choose_device
+from tfModels.tools import choose_device, smoothing_cross_entropy
 from tfTools.tfTools import pad_to, dense_sequence_to_sparse
 from tfSeq2SeqModels.seq2seqModel import Seq2SeqModel
 from tfModels.regularization import confidence_penalty
@@ -64,13 +64,14 @@ class CTCLMModel(Seq2SeqModel):
             if not self.args.model.shrink_hidden:
                 hidden_output = distribution_acoustic
 
+            blank_id = self.args.dim_ctc_output-1 if self.args.dim_ctc_output else self.args.dim_output-1
             if self.args.model.avg_repeated:
                 from tfModels.CTCShrink import acoustic_hidden_shrink_tf
                 hidden_shrunk, len_no_blank = acoustic_hidden_shrink_tf(
                     distribution_acoustic=distribution_acoustic,
                     hidden=hidden_output,
                     len_acoustic=len_acoustic,
-                    blank_id=self.args.dim_output-1,
+                    blank_id=blank_id,
                     num_post=self.args.model.num_post)
             else:
                 from tfTools.tfTools import acoustic_hidden_shrink
@@ -78,7 +79,7 @@ class CTCLMModel(Seq2SeqModel):
                     distribution_acoustic=distribution_acoustic,
                     hidden=hidden_output,
                     len_acoustic=len_acoustic,
-                    blank_id=self.args.dim_output-1,
+                    blank_id=blank_id,
                     hidden_size=self.args.model.encoder.num_cell_units,
                     num_avg=self.args.model.num_avg)
 
@@ -106,18 +107,28 @@ class CTCLMModel(Seq2SeqModel):
                 print('greedy search ...')
                 logits, decoded, len_decode = decoder(hidden_shrunk, len_no_blank)
             if self.is_train:
-                ocd_loss = self.ocd_loss(
-                    logits=logits,
-                    len_logits=len_decode,
-                    labels=tensors_input.label_splits[id_gpu],
-                    decoded=decoded,
-                    len_decode=len_decode)
+                if self.args.use_ce_loss:
+                    ocd_loss = self.ce_loss(
+                        logits=logits,
+                        labels=tensors_input.label_splits[id_gpu],
+                        len_logits=len_acoustic,
+                        len_labels=tensors_input.len_label_splits[id_gpu])
+                else:
+                    ocd_loss = self.ocd_loss(
+                        logits=logits,
+                        len_logits=len_decode,
+                        labels=tensors_input.label_splits[id_gpu],
+                        decoded=decoded,
+                        len_decode=len_decode)
 
-                ctc_loss = self.ctc_loss(
-                    logits=acoustic,
-                    len_logits=len_acoustic,
-                    labels=tensors_input.label_splits[id_gpu],
-                    len_labels=tensors_input.len_label_splits[id_gpu])
+                if self.args.model.train_encoder:
+                    ctc_loss = self.ctc_loss(
+                        logits=acoustic,
+                        len_logits=len_acoustic,
+                        labels=tensors_input.label_splits[id_gpu],
+                        len_labels=tensors_input.len_label_splits[id_gpu])
+                else:
+                    ctc_loss = tf.constant(0.0)
                 loss = ocd_loss + ctc_loss
 
                 if self.args.musk_update:
@@ -191,6 +202,37 @@ class CTCLMModel(Seq2SeqModel):
 
         if self.args.model.token_level_ocd: # token-level
             loss /= tf.reduce_sum(pad_mask, -1)
+
+        return loss
+
+    def ce_loss(self, logits, labels, len_logits, len_labels):
+        """
+        Compute optimization loss.
+        batch major
+        """
+        l = tf.reduce_min([tf.shape(logits)[1], tf.shape(labels)[1]])
+        # l = tf.Print(l , [l, tf.shape(logits), tf.shape(labels)], message='l, tf.shape(logits), tf.shape(labels): ', summarize=1000)
+        with tf.name_scope('CE_loss'):
+            crossent = smoothing_cross_entropy(
+                logits=logits[:, :l, :],
+                labels=labels[:, :l],
+                vocab_size=self.args.dim_output,
+                confidence=1.0)
+
+            mask = tf.sequence_mask(
+                len_labels,
+                maxlen=l,
+                dtype=logits.dtype)
+            mask2 = tf.sequence_mask(
+                len_logits,
+                maxlen=l,
+                dtype=logits.dtype)
+            mask *= mask2
+            # there must be reduce_sum not reduce_mean, for the valid token number is less
+            loss = tf.reduce_sum(crossent * mask)
+
+            if self.args.model.token_level_ocd: # token-level
+                loss /= tf.reduce_sum(mask)
 
         return loss
 
