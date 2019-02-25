@@ -72,7 +72,8 @@ class CTCLMModel(Seq2SeqModel):
                 #     hidden=hidden_output,
                 #     len_acoustic=len_acoustic,
                 #     blank_id=blank_id,
-                #     num_post=self.args.model.num_post)
+                #     num_post=self.args.model.num_post,
+                #     frame_expand=self.args.model.frame_expand)
                 from tfModels.CTCShrink import acoustic_hidden_shrink_v2
                 hidden_shrunk, len_no_blank = acoustic_hidden_shrink_v2(
                     distribution_acoustic=distribution_acoustic,
@@ -80,6 +81,8 @@ class CTCLMModel(Seq2SeqModel):
                     len_acoustic=len_acoustic,
                     blank_id=blank_id,
                     frame_expand=self.args.model.frame_expand)
+                # hidden_shrunk = tf.stop_gradient(hidden_shrunk)
+                # len_no_blank = tf.stop_gradient(len_no_blank)
             # else:
             #     from tfTools.tfTools import acoustic_hidden_shrink
             #     hidden_shrunk, len_no_blank = acoustic_hidden_shrink(
@@ -182,6 +185,8 @@ class CTCLMModel(Seq2SeqModel):
         if `len_logits` is all zero. then outputs the 0
         """
         from tfModels.OCDLoss import OCD_loss
+        # labels = tf.Print(labels, [tf.shape(logits), len_logits], message='len_logits: ', summarize=1000)
+
 
         optimal_distributions, optimal_targets = OCD_loss(
             hyp=decoded,
