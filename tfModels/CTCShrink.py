@@ -30,88 +30,99 @@ def pad_to_same(list_array):
     return np.array(list_sents, dtype=np.int32)
 
 
-def add_avg_hidden(list_hidden, list_one_no_blank):
-    if list_one_no_blank:
-        h = np.mean(list_one_no_blank, 0)
-        # for i in range(1, len(list_one_no_blank), 1):
-        #     print(np.sum(np.square(list_one_no_blank[i]-list_one_no_blank[i-1])))
-        # print('\n')
+def add_avg_hidden(list_hidden, list_frames):
+    if list_frames:
+        frames = list_frames
+        # frames, weights = list(zip(*list_frames))
+        h = np.average(frames, axis=0)
         list_hidden.append(h)
-        del list_one_no_blank[:]
+        del list_frames[:]
 
 
-def add_concate_hidden(list_hidden, list_one_no_blank, num=4):
-    if list_one_no_blank:
-        null = np.zeros_like(list_one_no_blank[0])
-        h = np.concatenate(list_one_no_blank[:num] + [null]*(num-len(list_one_no_blank)))
+def add_concate_hidden(list_hidden, list_frames, num=4):
+    if list_frames:
+        # frames, _ = list(zip(*list_frames))
+        frames = list_frames
+        null = np.zeros_like(frames[0])
+        h = np.concatenate(list(frames[:num]) + [null]*(num-len(frames)))
         list_hidden.append(h)
-        del list_one_no_blank[:]
+        del list_frames[:]
 
 
-def acoustic_hidden_shrink(distribution_acoustic, hidden, len_acoustic, blank_id, num_post=0, num_frames=4):
+def acoustic_hidden_shrink(hidden, alignments, len_acoustic, blank_id, num_frames=1):
     """
+    alignments: [b x t]
     distribution_acoustic: [b x t x v]
     hidden: [b x t x h]
     num_post: the number of posterior hidden frame that add to the current one
     """
-    alignments = np.argmax(distribution_acoustic, -1) # alignments: [b x t]
     list_batch = []
     list_len = []
     # batch loop
     for i, _hidden in enumerate(hidden):
         list_hidden = []
         token_pre = None
-        list_one_no_blank = []
+        list_frames = []
         # time loop
         for t, h in zip(range(len_acoustic[i]), _hidden):
             if alignments[i][t] == token_pre:
                 # a repeated no blank
-                list_one_no_blank.append(h)
+                # p = distribution_acoustic[i][t][token_pre]
+                list_frames.append(h)
 
             elif alignments[i][t] == blank_id:
                 # a blank
                 token_pre = None
-                if num_post>0 and list_one_no_blank:
-                    list_one_no_blank.extend([*_hidden[t+1: min(t+num_post+1, len_acoustic[i]-1)]])
-                # add_avg_hidden(list_hidden, list_one_no_blank)
-                add_concate_hidden(list_hidden, list_one_no_blank, num_frames)
+                # if num_post>0 and list_frames:
+                #     list_frames.extend([*_hidden[t+1: min(t+num_post+1, len_acoustic[i]-1)]])
+                add_avg_hidden(list_hidden, list_frames)
+                # add_concate_hidden(list_hidden, list_frames, num_frames)
             else:
                 # a new no blank
-                # add_avg_hidden(list_hidden, list_one_no_blank)
-                add_concate_hidden(list_hidden, list_one_no_blank, num_frames)
-                list_one_no_blank = [h]
+                add_avg_hidden(list_hidden, list_frames)
+                # add_concate_hidden(list_hidden, list_frames, num_frames)
                 token_pre = alignments[i][t]
+                # p = distribution_acoustic[i][t][token_pre]
+                list_frames = [h]
 
-        # add_avg_hidden(list_hidden, list_one_no_blank)
-        add_concate_hidden(list_hidden, list_one_no_blank, num_frames)
+        add_avg_hidden(list_hidden, list_frames)
+        # add_concate_hidden(list_hidden, list_frames, num_frames)
 
         list_batch.append(list_hidden)
         list_len.append(len(list_hidden))
 
     list_hidden_padded = []
-    for hidden_shrinked in list_batch:
+    for hidden_shrunk in list_batch:
         # the hidden is at least with length of 1
-        hidden_padded = pad_to(hidden_shrinked, max(list_len+[1]), num_frames * hidden.shape[-1])
+        hidden_padded = pad_to(hidden_shrunk, max(list_len+[1]), num_frames * hidden.shape[-1])
         list_hidden_padded.append(hidden_padded)
-    acoustic_shrinked = np.stack(list_hidden_padded, 0)
+    acoustic_shrunk = np.stack(list_hidden_padded, 0)
     # the hidden is at least with length of 1
     list_len = [x if x != 0 else 1 for x in list_len]
 
     del list_batch, list_hidden_padded
 
-    return acoustic_shrinked, np.array(list_len, np.int32)
+    return acoustic_shrunk, np.array(list_len, np.int32)
 
-def acoustic_hidden_shrink_tf(distribution_acoustic, hidden, len_acoustic, blank_id, num_post, frame_expand):
+def acoustic_hidden_shrink_tf(distribution_acoustic, hidden, len_acoustic, blank_id, frame_expand):
     """
     NOTATION: the gradient will not pass over the input vars
     """
-    hidden_shrinked, len_no_blank = tf.py_func(acoustic_hidden_shrink, [distribution_acoustic, hidden, len_acoustic, blank_id, num_post, frame_expand],
+    alignments = tf.argmax(distribution_acoustic, -1)
+    hidden_shrunk, len_no_blank = tf.py_func(acoustic_hidden_shrink, [hidden, alignments, len_acoustic, blank_id, frame_expand],
                       (tf.float32, tf.int32))
-    hidden_shrinked.set_shape([None, None, 4*hidden.get_shape()[-1]])
+    hidden_shrunk.set_shape([None, None, frame_expand*hidden.get_shape()[-1]])
     len_no_blank.set_shape([None])
 
-    return hidden_shrinked, len_no_blank
+    return hidden_shrunk, len_no_blank
 
+
+def add_blank(list_num_tokens, list_token_musks, num_repeated, align, i):
+    if num_repeated > 0:
+        list_num_tokens.append(num_repeated)
+        musk = np.zeros_like(align, dtype=np.float32)
+        musk[i-num_repeated+1: i+1] = np.ones([num_repeated], dtype=np.float32)
+        list_token_musks.append(musk)
 
 def analysis_alignments(alignments, len_acoustic, blank_id):
     """
@@ -131,34 +142,31 @@ def analysis_alignments(alignments, len_acoustic, blank_id):
     for align, len_time in zip(alignments, len_acoustic):
         list_num_tokens = []
         num_repeated = 0
-        prev_is_blank = True
+        token_pre = None
         # the end of align is set to blank
         for i, token in zip(range(len_time), align):
-            if token != blank_id:
-                # none of current and previous token is blank
+            if token == token_pre:
+                # repteted token
                 num_repeated +=1
-                prev_is_blank = False
-                continue
-            elif token == blank_id and not prev_is_blank:
+            elif token == blank_id and num_repeated>0:
                 # current char ends
-                list_num_tokens.append(num_repeated)
-                musk = np.zeros_like(align, dtype=np.float32)
-                musk[i-num_repeated: i] = np.ones([num_repeated], dtype=np.float32)
-                list_token_musks.append(musk)
+                add_blank(list_num_tokens, list_token_musks, num_repeated, align, i-1)
                 num_repeated = 0
-            prev_is_blank = True
+            elif token == blank_id and num_repeated == 0:
+                # naive blank
+                pass
+            else:
+                # new token
+                add_blank(list_num_tokens, list_token_musks, num_repeated, align, i-1)
+                token_pre = token
+                num_repeated = 1
 
-        if not prev_is_blank:
-            # the end od sent is not blank
-            list_num_tokens.append(num_repeated)
-            musk = np.zeros_like(align, dtype=np.float32)
-            musk[i-num_repeated+1: i+1] = np.ones([num_repeated], dtype=np.float32)
-            list_token_musks.append(musk)
+        add_blank(list_num_tokens, list_token_musks, num_repeated, align, i)
 
         if not list_num_tokens:
             # all the sent is blank
             list_num_tokens.append(1)
-            list_token_musks.append(np.zeros_like(align, dtype=np.float32))
+            list_token_musks.append(np.ones_like(align, dtype=np.float32))
 
         lists_num_tokens.append(list_num_tokens)
         list_token_len.append(len(list_num_tokens))
@@ -180,7 +188,7 @@ def analysis_alignments_tf(alignments, len_acoustic, blank_id):
     return num_repeated_frames, len_label, musk_repeated
 
 
-def acoustic_hidden_shrink_v2(distribution_acoustic, hidden, len_acoustic, blank_id, frame_expand):
+def acoustic_hidden_shrink_v2(distribution_acoustic, hidden, len_acoustic, blank_id):
     """
     alignments: [b, t]
     hidden: [b x t x h]
@@ -189,73 +197,53 @@ def acoustic_hidden_shrink_v2(distribution_acoustic, hidden, len_acoustic, blank
     musk_repeated: [bxu, t]
 
     asserts : 1. step_in_batch should be ended as bxu-1
-    
+
     NOTATION: each sent in the batch at least has length of 1
     """
     alignments = tf.argmax(distribution_acoustic, -1)
     num_repeated_frames, len_label, musk_repeated = analysis_alignments_tf(alignments, len_acoustic, blank_id)
-    # num_repeated_frames = tf.Print(num_repeated_frames, [num_repeated_frames], message='num_repeated_frames: ', summarize=1000)
     batch_size = tf.shape(hidden)[0]
     maxlen_sent = tf.shape(num_repeated_frames)[1]
-    size_hidden = hidden.get_shape()[-1] * frame_expand
-    size_hidden_tf = frame_expand * tf.convert_to_tensor(size_hidden)
-    frames_shrinked_init = tf.zeros([1, size_hidden])
-    acoustic_shrinked_init = tf.zeros([1, maxlen_sent, size_hidden])
-    # hidden = tf.Print(hidden,[tf.shape(num_repeated_frames), tf.shape(len_label), tf.shape(musk_repeated), tf.reduce_sum(tf.to_int32(num_repeated_frames>0))], message='musk_repeated: ', summarize=1000)
-    def sent(i, step_in_batch, acoustic_shrinked):
+    size_hidden = hidden.get_shape()[-1]
+    size_hidden_tf = tf.convert_to_tensor(size_hidden)
+    frames_shrunk_init = tf.zeros([1, size_hidden])
+    acoustic_shrunk_init = tf.zeros([1, maxlen_sent, size_hidden])
+    def sent(i, step_in_batch, acoustic_shrunk):
 
-        def step(j, i, step_in_batch, frames_shrinked):
-            # step_in_batch = tf.Print(step_in_batch,[i, j, step_in_batch], message='step_in_batch: ', summarize=1000)
-            # step_in_batch = tf.Print(step_in_batch,[musk_repeated[step_in_batch]], message='musk_repeated: ', summarize=1000)
+        def step(j, i, step_in_batch, frames_shrunk):
             indices = tf.where(musk_repeated[step_in_batch] > 0)
-            repeated_frames = tf.reshape(tf.gather(hidden[i], indices[:, 0]), [-1])
-            # mean, _ = tf.nn.moments(repeated_frames, 0)
+            frame = tf.reduce_mean(tf.gather(hidden[i], indices[:, 0]), 0)
+            frames_shrunk = tf.concat([frames_shrunk,
+                                       frame[None, :]], 0)
 
-            null = tf.zeros([size_hidden_tf], dtype=tf.float32)
-            frame = tf.concat([repeated_frames, null], 0)[:size_hidden]
-            # frame = tf.concat([tf.reshape(repeated_frames[:frame_expand], [-1]), null], 0)
-            frames_shrinked = tf.concat([frames_shrinked,
-                                         frame[None, :]], 0)
+            return j+1, i, step_in_batch+1, frames_shrunk
 
-            return j+1, i, step_in_batch+1, frames_shrinked
-
-        _, _, step_in_batch, frames_shrinked = tf.while_loop(
+        _, _, step_in_batch, frames_shrunk = tf.while_loop(
             cond=lambda j, *_: tf.less(j, len_label[i]),
             body=step,
-            loop_vars=[0, i, step_in_batch, frames_shrinked_init],
+            loop_vars=[0, i, step_in_batch, frames_shrunk_init],
             shape_invariants=[tf.TensorShape([]),
                               tf.TensorShape([]),
                               tf.TensorShape([]),
                               tf.TensorShape([None, size_hidden])])
-        frames_shrinked = tf.concat([frames_shrinked[1:],
-                                     tf.zeros([maxlen_sent-len_label[i], size_hidden])], 0)
-        acoustic_shrinked = tf.concat([acoustic_shrinked,
-                                       frames_shrinked[None, :]], 0)
+        frames_shrunk = tf.concat([frames_shrunk[1:],
+                                   tf.zeros([maxlen_sent-len_label[i], size_hidden])], 0)
+        acoustic_shrunk = tf.concat([acoustic_shrunk,
+                                     frames_shrunk[None, :]], 0)
 
-        return i+1, step_in_batch, acoustic_shrinked
+        return i+1, step_in_batch, acoustic_shrunk
 
-    _, _, acoustic_shrinked = tf.while_loop(
+    _, _, acoustic_shrunk = tf.while_loop(
         cond=lambda i, *_: tf.less(i, batch_size),
         body=sent,
-        loop_vars=[0, 0, acoustic_shrinked_init],
+        loop_vars=[0, 0, acoustic_shrunk_init],
         shape_invariants=[tf.TensorShape([]),
                           tf.TensorShape([]),
                           tf.TensorShape([None, None, size_hidden])])
 
-    acoustic_shrinked = acoustic_shrinked[1:]
-    # acoustic_shrinked = tf.Print(acoustic_shrinked, [tf.reduce_sum(acoustic_shrinked, -1)], message='acoustic_shrinked: ', summarize=1000)
+    acoustic_shrunk = acoustic_shrunk[1:]
 
-    return acoustic_shrinked, len_label
-
-# def acoustic_hidden_shrink_v2_tf(distribution_acoustic, hidden, len_acoustic, blank_id, frame_expand):
-#     alignments = tf.argmax(distribution_acoustic, -2)
-#     hidden_shrinked, len_no_blank = tf.py_func(
-#         acoustic_hidden_shrink_v2, [alignments, hidden, len_acoustic, blank_id, frame_expand],
-#         (tf.float32, tf.int32))
-#     hidden_shrinked.set_shape([None, None, 4*hidden.get_shape()[-1]])
-#     len_no_blank.set_shape([None])
-#
-#     return hidden_shrinked, len_no_blank
+    return acoustic_shrunk, len_label
 
 
 def constrain_repeated(alignments, hidden, len_acoustic, blank_id):
@@ -334,7 +322,7 @@ def test_acoustic_hidden_shrink():
 
 
 def test_shrink_tf():
-    distribution_acoustic = tf.Constant(
+    distribution_acoustic = tf.constant(
         [[[0.04,0.01, 0.05, 0.9],
           [0.3, 0.8, 0.05, 0.05],
           [0.1, 0.8, 0.05, 0.05],
@@ -346,6 +334,25 @@ def test_shrink_tf():
     len_acoustic = [2, 4]
     res = acoustic_hidden_shrink(distribution_acoustic, distribution_acoustic, len_acoustic, 3)
     print(res)
+
+
+def test_shrink_v2_tf():
+
+    distribution_acoustic = tf.constant(
+        [[[0.04,0.01, 0.05, 0.9],
+          [0.3, 0.8, 0.05, 0.05],
+          [0.1, 0.8, 0.05, 0.05],
+          [0.05,0.01, 0.9, 0.04]],
+         [[0.9, 0.01, 0.05, 0.04],
+          [0.1, 0.05, 0.05, 0.9],
+          [0.1, 0.05, 0.05, 0.9],
+          [0.05,0.01, 0.9, 0.04]]])
+    len_acoustic = [2, 4]
+    acoustic_shrunk, len_label = acoustic_hidden_shrink_v2(distribution_acoustic, distribution_acoustic, len_acoustic, 3)
+
+    sess=tf.InteractiveSession()
+    sess.run(tf.global_variables_initializer())
+    print(sess.run([acoustic_shrunk, len_label]))
 
 
 def test_analysis_alignments():
@@ -404,4 +411,5 @@ def test_constrain_repeated():
 if __name__ == '__main__':
     # test_acoustic_hidden_shrink()
     # test_analysis_alignments()
-    test_constrain_repeated()
+    # test_constrain_repeated()
+    test_shrink_v2_tf()

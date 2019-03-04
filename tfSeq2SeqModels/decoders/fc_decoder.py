@@ -2,6 +2,7 @@
 contains the general recurrent decoder class'''
 
 import tensorflow as tf
+import os
 from .decoder import Decoder
 # from ..tools import helpers
 
@@ -35,6 +36,7 @@ class FCDecoder(Decoder):
             activation=None,
             use_bias=False,
             name='fully_connected')
+
         preds = tf.argmax(logits, -1)
 
         return logits, preds, len_encoded

@@ -62,40 +62,40 @@ class CONV_LSTM_Bottleneck(Encoder):
         outputs = x
         output_seq_lengths = len_sequence
 
-        outputs = self.blstm(
+        outputs = self.lstm(
             hidden_output=outputs,
             len_feas=output_seq_lengths,
             num_cell_units=num_cell_units,
             use_residual=use_residual,
             dropout=dropout,
-            name='blstm_1')
+            name='lstm_1')
         outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'HALF', 1)
 
-        outputs = self.blstm(
+        outputs = self.lstm(
             hidden_output=outputs,
             len_feas=output_seq_lengths,
             num_cell_units=num_cell_units,
             use_residual=use_residual,
             dropout=dropout,
-            name='blstm_2')
+            name='lstm_2')
         outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'SAME', 2)
 
-        outputs = self.blstm(
+        outputs = self.lstm(
             hidden_output=outputs,
             len_feas=output_seq_lengths,
             num_cell_units=num_cell_units,
             use_residual=use_residual,
             dropout=dropout,
-            name='blstm_3')
+            name='lstm_3')
         outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'HALF', 3)
 
-        outputs = self.blstm(
+        outputs = self.lstm(
             hidden_output=outputs,
             len_feas=output_seq_lengths,
             num_cell_units=num_cell_units,
             use_residual=use_residual,
             dropout=dropout,
-            name='blstm_4')
+            name='lstm_4')
         outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'SAME', 4)
 
         outputs = tf.layers.dense(
@@ -126,43 +126,17 @@ class CONV_LSTM_Bottleneck(Encoder):
         return output
 
     @staticmethod
-    def blstm(hidden_output, len_feas, num_cell_units, use_residual, dropout, name):
-        num_cell_units /= 2
-
-        with tf.variable_scope(name):
-            f_cell = tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(num_cell_units)
-            b_cell = tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(num_cell_units)
-
-            x, _ = tf.nn.bidirectional_dynamic_rnn(
-                cell_fw=f_cell,
-                cell_bw=b_cell,
-                inputs=hidden_output,
-                dtype=tf.float32,
-                time_major=False,
-                sequence_length=len_feas)
-            x = tf.concat(x, 2)
-
-            if use_residual:
-                x = residual(hidden_output, x, dropout)
-
-        return x
-
-    @staticmethod
     def lstm(hidden_output, len_feas, num_cell_units, use_residual, dropout, name):
-        num_cell_units /= 2
 
         with tf.variable_scope(name):
-            f_cell = tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(num_cell_units)
-            b_cell = tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(num_cell_units)
+            cell = tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(num_cell_units)
 
-            x, _ = tf.nn.bidirectional_dynamic_rnn(
-                cell_fw=f_cell,
-                cell_bw=b_cell,
+            x, _ = tf.nn.dynamic_rnn(
+                cell=cell,
                 inputs=hidden_output,
                 dtype=tf.float32,
                 time_major=False,
                 sequence_length=len_feas)
-            x = tf.concat(x, 2)
 
             if use_residual:
                 x = residual(hidden_output, x, dropout)

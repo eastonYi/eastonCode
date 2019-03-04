@@ -38,6 +38,14 @@ class CTCModel(Seq2SeqModel):
                 len_feas=tensors_input.len_fea_splits[id_gpu])
             logits, align, len_logits = decoder(hidden_output, len_hidden_output)
 
+            from tfModels.CTCShrink import acoustic_hidden_shrink_tf
+            hidden_shrunk, len_no_blank = acoustic_hidden_shrink_tf(
+                distribution_acoustic=logits,
+                hidden=hidden_output,
+                len_acoustic=len_logits,
+                blank_id=self.args.dim_output-1,
+                frame_expand=1)
+
             if self.is_train:
                 loss = self.ctc_loss(
                     logits=logits,
@@ -47,7 +55,7 @@ class CTCModel(Seq2SeqModel):
 
                 if self.args.model.constrain_repeated:
                     from tfModels.CTCShrink import repeated_constrain_loss
-                    
+
                     loss_constrain = repeated_constrain_loss(
                         distribution_acoustic=logits,
                         hidden=hidden_output,

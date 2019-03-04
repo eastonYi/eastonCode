@@ -28,7 +28,7 @@ class CTC_LM_Decoder(RNADecoder):
         self.dropout = args.model.decoder2.dropout
         dim_ctc_output = args.dim_ctc_output if args.dim_ctc_output else args.dim_output
         dim_encoder_output = args.model.encoder.bottleneck if args.model.encoder.bottleneck else args.model.encoder.num_cell_units
-        frame_expand = args.model.frame_expand * (3 if args.model.use_neighbor_frames else 1)
+        frame_expand = 3 if args.model.use_neighbor_frames else 1
         self.num_cell_units_en = frame_expand * dim_encoder_output \
                                 if args.model.shrink_hidden else dim_ctc_output
         self.size_embedding = args.model.decoder2.size_embedding
@@ -77,7 +77,16 @@ class CTC_LM_Decoder(RNADecoder):
         def step(i, preds, all_states, logits):
             state_decoder = all_states["state_decoder"]
             prev_emb = self.embedding(preds[:, -1])
-            decoder_input = tf.concat([encoded[:, i, :], prev_emb], axis=-1)
+
+            if self.args.model.acoustic_corrupt:
+                sample = tf.distributions.Bernoulli(probs=self.args.model.acoustic_corrupt if self.is_train else 0.0, dtype=tf.bool).sample()
+                frame = tf.cond(sample,
+                        lambda: encoded[:, i, :] + tf.random_normal(tf.shape(encoded[:, i, :]), stddev=100.0),
+                        lambda: encoded[:, i, :])
+            else:
+                frame = encoded[:, i, :]
+
+            decoder_input = tf.concat([frame, prev_emb], axis=-1)
             decoder_input.set_shape([None, self.num_cell_units_en+self.size_embedding])
 
             # Lstm part
@@ -333,3 +342,76 @@ class CTC_LM_Decoder(RNADecoder):
             cur_ids = tf.to_int32(tf.argmax(cur_logit, -1))
 
         return cur_ids, state_decoder
+
+    def teacherforcing_decode(self, encoded, len_encoded, target_labels, max_len):
+        """
+        teacher-forcing training
+        """
+        batch_size = tf.shape(len_encoded)[0]
+        blank_id = self.dim_output-1
+        token_init = tf.fill([batch_size, 1], blank_id)
+        logits_init = tf.zeros([batch_size, 1, self.dim_output], dtype=tf.float32)
+
+        if self.args.model.use_neighbor_frames:
+            encoded = tf.concat([encoded,
+                                tf.concat([encoded[:, 1:, :], encoded[:, -1:, :]], 1),
+                                tf.concat([encoded[:, :1, :], encoded[:, :-1, :]], 1)], -1)
+        rand_idx = tf.random_uniform([], minval=0, maxval=tf.shape(encoded)[1]-1, dtype=tf.int32)
+
+        self.cell = make_multi_cell(
+            num_cell_units=self.num_cell_units_de,
+            is_train=self.is_train,
+            keep_prob=1-self.dropout,
+            rnn_mode='BLOCK',
+            num_layers=self.num_layers,
+            dim_output=self.dim_output)
+        # collect the initial states of lstms used in decoder.
+        all_initial_states = {}
+        all_initial_states["state_decoder"] = self.zero_state(batch_size, dtype=tf.float32)
+        shape_loop_states = nest.map_structure(lambda t: tf.TensorShape(t.shape), all_initial_states)
+
+        def step(i, preds, all_states, logits):
+            state_decoder = all_states["state_decoder"]
+            prev_emb = self.embedding(target_labels.input_labels[:, i])
+            decoder_input = tf.concat([encoded[:, rand_idx, :], prev_emb], axis=-1)
+            decoder_input.set_shape([None, self.num_cell_units_en+self.size_embedding])
+
+            # Lstm part
+            with tf.variable_scope("decoder_lstms"):
+                output_decoder, state_decoder = tf.contrib.legacy_seq2seq.rnn_decoder(
+                    decoder_inputs=[decoder_input],
+                    initial_state=state_decoder,
+                    cell=self.cell)
+                all_states["state_decoder"] = state_decoder
+                # output_decoder = [tf.concat([output_decoder[0], encoded[:, i, :]], axis=1)]
+
+            cur_logit = tf.layers.dense(
+                inputs=output_decoder[0],
+                units=self.dim_output,
+                activation=None,
+                use_bias=False,
+                name='fully_connected'
+                )
+
+            if self.is_train and self.args.model.decoder.sample_decoder:
+                cur_ids = tf.distributions.Categorical(logits=cur_logit/self.softmax_temperature).sample()
+            else:
+                cur_ids = tf.to_int32(tf.argmax(cur_logit, -1))
+            preds = tf.concat([preds, cur_ids[:, None]], axis=1)
+            logits = tf.concat([logits, cur_logit[:, None]], 1)
+
+            return i+1, preds, all_states, logits
+
+        _, preds, _, logits = tf.while_loop(
+            cond=lambda i, *_: tf.less(i, max_len),
+            body=step,
+            loop_vars=[0, token_init, all_initial_states, logits_init],
+            shape_invariants=[tf.TensorShape([]),
+                              tf.TensorShape([None, None]),
+                              shape_loop_states,
+                              tf.TensorShape([None, None, self.dim_output])]
+            )
+
+        logits = logits[:, 1:, :]
+
+        return logits

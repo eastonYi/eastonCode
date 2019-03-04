@@ -29,8 +29,11 @@ class CTC_LM_SA_Decoder(RNADecoder):
         self.attention_dropout_rate = args.model.decoder2.attention_dropout_rate if is_train else 0.0
         self.residual_dropout_rate = args.model.decoder2.residual_dropout_rate if is_train else 0.0
         self.num_heads = args.model.decoder2.num_heads
-        self.num_cell_units_en = args.model.encoder.num_cell_units \
-                                if args.model.shrink_hidden else args.dim_output
+        dim_ctc_output = args.dim_ctc_output if args.dim_ctc_output else args.dim_output
+        dim_encoder_output = args.model.encoder.bottleneck if args.model.encoder.bottleneck else args.model.encoder.num_cell_units
+        frame_expand = args.model.frame_expand * (3 if args.model.use_neighbor_frames else 1)
+        self.num_cell_units_en = frame_expand * dim_encoder_output \
+                                if args.model.shrink_hidden else dim_ctc_output
         self.size_embedding = args.model.decoder2.size_embedding
         self._ff_activation = tf.nn.relu
         self.softmax_temperature = args.model.decoder2.softmax_temperature
@@ -47,7 +50,17 @@ class CTC_LM_SA_Decoder(RNADecoder):
 
         def step(i, preds, cache_decoder, logits):
             preds_emb = self.embedding(preds)
-            decoder_input = tf.concat([encoded[:, :i+1, :], preds_emb], axis=-1)
+
+            if self.args.model.acoustic_corrupt:
+                sample = tf.distributions.Bernoulli(probs=self.args.model.acoustic_corrupt if self.is_train else 0.0, dtype=tf.bool).sample()
+                frames_corrupt = tf.concat([encoded[:, :i, :], (encoded[:, i, :] + tf.random_normal(tf.shape(encoded[:, i, :]), stddev=100.0))[:, None, :]], 1)
+                frames = tf.cond(sample,
+                        lambda: frames_corrupt,
+                        lambda: encoded[:, :i+1, :])
+            else:
+                frames = encoded[:, :i+1, :]
+
+            decoder_input = tf.concat([frames, preds_emb], axis=-1)
             decoder_input.set_shape([None, None, self.num_cell_units_en+self.size_embedding])
 
             decoder_output, cache_decoder = self.decoder_with_caching_impl(decoder_input, cache_decoder)

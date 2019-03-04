@@ -1,6 +1,7 @@
 import tensorflow as tf
 from tfTools.tfTools import dense_sequence_to_sparse
 import numpy as np
+import time
 
 def editDistance(hyp, ref):
     '''
@@ -86,7 +87,6 @@ def optimal_completion_targets(hyp, ref):
     '''
     batch_size, len_hyp = hyp.shape
     _, len_ref = ref.shape
-
     # initialization
     d = np.zeros((batch_size, len_hyp, len_ref), dtype=np.int32)
     d[:, 0, :] = np.tile(np.expand_dims(np.arange(len_ref), 0), [batch_size, 1])
@@ -104,6 +104,7 @@ def optimal_completion_targets(hyp, ref):
                 np.amin(np.stack([sub, ins, det]), 0))
     m = np.amin(d, -1)
     mask_min = np.equal(d, np.stack([m]*d.shape[-1], -1)).astype(np.int32)
+    del d
 
     return mask_min
 
@@ -208,6 +209,70 @@ def optimal_completion_targets_with_blank_v2(hyp, ref, blank_id):
     return mask_min.astype(np.int32)
 
 
+def optimal_completion_targets_tf(hyp, ref):
+    '''
+    OCD targsts
+    Optimal Completion Distillation for Sequence Learning
+    http://arxiv.org/abs/1810.01398
+    this is for no eos
+    return the 3d mask tensor of the distance table
+    the function only used to compute the target distributions, no gradients need
+    to pass through, so the py_func is OK here.
+
+    NOTATION:
+        the `hyp` should not be None, i.e. `len_hyp` should larger than 0
+        d0, d2
+        d1, d
+    '''
+    batch_size = tf.shape(hyp)[0]
+    len_hyp = tf.shape(hyp)[1]
+    len_ref = tf.shape(ref)[1]
+
+    # initialization
+    d_init = tf.tile(tf.range(len_ref)[None, None, :], [batch_size, 1, 1])
+
+    def sent(i, d):
+
+        def step(j, i, d_prev, d_cur):
+            d0 = d_prev[:, j-1]
+            d2 = d_prev[:, j]
+
+            sub = d0 + 1
+            ins = d_cur[:, -1] + 1
+            det = d2 + 1
+            d = tf.where(
+                hyp[:, i-1] == ref[:, j-1],
+                d0,
+                tf.reduce_min(tf.stack([sub, ins, det]), 0))
+            d_cur = tf.concat([d_cur, d[:, None]], -1)
+
+            return j+1, i, d_prev, d_cur
+
+        _, _, _, d_line = tf.while_loop(
+            cond=lambda j, *_: tf.less(j, len_ref),
+            body=step,
+            loop_vars=[1, i, d[:, -1, :], tf.tile([[i]], [batch_size, 1])],
+            shape_invariants=[tf.TensorShape([]),
+                              tf.TensorShape([]),
+                              tf.TensorShape([None, None]),
+                              tf.TensorShape([None, None])])
+        d = tf.concat([d, d_line[:, None, :]], 1)
+
+        return i+1, d
+
+    _, d = tf.while_loop(
+        cond=lambda i, *_: tf.less(i, len_hyp),
+        body=sent,
+        loop_vars=[1, d_init],
+        shape_invariants=[tf.TensorShape([]),
+                          tf.TensorShape([None, None, None])])
+
+    m = tf.reduce_max(d, -1)
+    mask_min = tf.to_int32(tf.equal(d, tf.tile(m[:, :, None], [1, 1, len_ref])))
+
+    return mask_min
+
+
 def OCD_loss(hyp, ref, vocab_size):
     """
     make sure the padding id is 0!
@@ -215,6 +280,7 @@ def OCD_loss(hyp, ref, vocab_size):
     the gradient is stoped at mask_min
     """
     mask_min = tf.py_func(optimal_completion_targets, [hyp, ref], tf.int32)
+    # mask_min = optimal_completion_targets_tf(hyp, ref)
 
     tiled_ref = tf.tile(tf.expand_dims(ref, 1), [1, tf.shape(mask_min)[1], 1])
     optimal_targets = tiled_ref * mask_min
@@ -234,6 +300,7 @@ def OCD_loss(hyp, ref, vocab_size):
                                       optimal_distribution[:, :, 1:]], -1)
     # average over all the optimal targets
     optimal_distribution = tf.nn.softmax(optimal_distribution*1024)
+    # optimal_distribution = tf.stop_gradient(optimal_distribution)
 
     return optimal_distribution, optimal_targets
     # return optimal_distribution

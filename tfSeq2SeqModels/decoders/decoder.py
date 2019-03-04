@@ -90,6 +90,11 @@ class Decoder(object):
 
         return decoder_input
 
+    def teacher_forcing(self, encoded, len_encoded, target_labels, max_len):
+        with tf.variable_scope(self.name or 'decoder'):
+            logits = self.teacherforcing_decode(encoded, len_encoded, target_labels, max_len)
+        return logits
+
     def max_decoder_len(self, len_src=None):
         if self.args.model.decoder.len_max_decoder:
             len_max_decode = self.args.model.decoder.len_max_decoder

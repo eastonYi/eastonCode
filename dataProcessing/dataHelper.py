@@ -551,6 +551,34 @@ class DataLoader(SimpleDataLoader):
             self.list_seq_features = []
             self.list_seq_labels = []
 
+    def batch_with_tfReader_buckets(self):
+        buckets = self.args.list_bucket_boundaries
+        # max_length = buckets[-1]
+        caches = collections.defaultdict(lambda: [[], [], 0])
+        for _ in range(len(self)*self.num_loops):
+            seq_features, seq_labels = self.sess.run([self.feat, self.label])
+
+            # assert len(seq_features) == len(seq_labels)
+            id_bucket, bucket = size_bucket_to_put(len(seq_features), buckets)
+            if bucket is None:
+                continue
+            caches[bucket][0].append(seq_features)
+            caches[bucket][1].append(seq_labels)
+
+            caches[bucket][2] += 1
+            if caches[bucket][2] >= self.args.list_batch_size[id_bucket]:
+                batch = (caches[bucket][0], caches[bucket][1])
+                yield self.padding_list_seq_with_labels(*batch)
+                caches[bucket] = [[], [], 0]
+
+        # Clean remain samples.
+        for bucket in buckets:
+            if caches[bucket][2] > 0:
+                batch = (caches[bucket][0], caches[bucket][1])
+                yield self.padding_list_seq_with_labels(*batch)
+                caches[bucket] = [[], [], 0]
+                logging.info('empty the bucket {}'.format(bucket))
+
 
 class ASRDataLoader(DataLoader):
     def __init__(self, dataset, args, feat, label, batch_size, num_loops, num_thread=4, size_queue=2000):
@@ -562,7 +590,8 @@ class ASRDataLoader(DataLoader):
         self.batch_size = batch_size
 
     def __iter__(self):
-        return self.batch_with_tfReader(self.batch_size)
+        # return self.batch_with_tfReader(self.batch_size)
+        return self.batch_with_tfReader_buckets()
 
     def __len__(self):
         return self.size_dataset

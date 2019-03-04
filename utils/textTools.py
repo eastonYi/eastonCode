@@ -61,8 +61,9 @@ def batch_wer(result, reference, idx2token, unit, eos_idx=None, min_idx=0, max_i
     batch_len = 0
     for res, ref in zip(result, reference):
         list_res_txt = array2text(res, unit, idx2token, eos_idx, min_idx, max_idx).split()
-        # print(list_res_txt)
         list_ref_txt = array2text(ref, unit, idx2token, eos_idx, min_idx, max_idx).split()
+        # print(' '.join(list_res_txt))
+        # print(' '.join(list_ref_txt))
         batch_dist += ed.eval(list_res_txt, list_ref_txt)
         batch_len += len(list_ref_txt)
 

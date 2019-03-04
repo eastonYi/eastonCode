@@ -66,21 +66,32 @@ class CTCLMModel(Seq2SeqModel):
 
             blank_id = self.args.dim_ctc_output-1 if self.args.dim_ctc_output else self.args.dim_output-1
             if self.args.model.avg_repeated:
-                # from tfModels.CTCShrink import acoustic_hidden_shrink_tf
-                # hidden_shrunk, len_no_blank = acoustic_hidden_shrink_tf(
+                if self.args.model.true_end2end:
+                    from tfModels.CTCShrink import acoustic_hidden_shrink_v2
+                    hidden_shrunk, len_no_blank = acoustic_hidden_shrink_v2(
+                        distribution_acoustic,
+                        hidden_output,
+                        len_acoustic,
+                        blank_id)
+                else:
+                    from tfModels.CTCShrink import acoustic_hidden_shrink_tf
+                    hidden_shrunk, len_no_blank = acoustic_hidden_shrink_tf(
+                        distribution_acoustic=distribution_acoustic,
+                        hidden=hidden_output,
+                        len_acoustic=len_acoustic,
+                        blank_id=blank_id,
+                        frame_expand=self.args.model.frame_expand)
+
+
+                if self.is_train:
+                    hidden_shrunk = tf.nn.dropout(hidden_shrunk, keep_prob=1-self.args.model.dropout)
+                # from tfModels.CTCShrink import acoustic_hidden_shrink_v2
+                # hidden_shrunk, len_no_blank = acoustic_hidden_shrink_v2(
                 #     distribution_acoustic=distribution_acoustic,
                 #     hidden=hidden_output,
                 #     len_acoustic=len_acoustic,
                 #     blank_id=blank_id,
-                #     num_post=self.args.model.num_post,
                 #     frame_expand=self.args.model.frame_expand)
-                from tfModels.CTCShrink import acoustic_hidden_shrink_v2
-                hidden_shrunk, len_no_blank = acoustic_hidden_shrink_v2(
-                    distribution_acoustic=distribution_acoustic,
-                    hidden=hidden_output,
-                    len_acoustic=len_acoustic,
-                    blank_id=blank_id,
-                    frame_expand=self.args.model.frame_expand)
                 # hidden_shrunk = tf.stop_gradient(hidden_shrunk)
                 # len_no_blank = tf.stop_gradient(len_no_blank)
             # else:
@@ -117,7 +128,7 @@ class CTCLMModel(Seq2SeqModel):
                 print('greedy search ...')
                 logits, decoded, len_decode = decoder(hidden_shrunk, len_no_blank)
             if self.is_train:
-                if self.args.use_ce_loss:
+                if self.args.model.use_ce_loss:
                     ocd_loss = self.ce_loss(
                         logits=logits,
                         labels=tensors_input.label_splits[id_gpu],
@@ -139,7 +150,28 @@ class CTCLMModel(Seq2SeqModel):
                         len_labels=tensors_input.len_label_splits[id_gpu])
                 else:
                     ctc_loss = tf.constant(0.0)
-                loss = ocd_loss + ctc_loss
+                loss = ocd_loss + ctc_loss * (self.args.model.decoder.coefficient if self.args.model.decoder.coefficient else 1.0)
+
+                if self.args.model.teacher_forcing and self.is_train:
+                    decoder_input = decoder.build_input(
+                        id_gpu=id_gpu,
+                        tensors_input=tensors_input)
+                    logits_lm = decoder.teacher_forcing(
+                        hidden_shrunk,
+                        len_no_blank,
+                        decoder_input,
+                        tf.reduce_max(tensors_input.len_label_splits))
+                    crossent_lm = smoothing_cross_entropy(
+                        logits=logits_lm,
+                        labels=tensors_input.label_splits[id_gpu],
+                        vocab_size=self.args.dim_output,
+                        confidence=0.9)
+                    mask_lm = tf.sequence_mask(
+                        tensors_input.len_label_splits[id_gpu],
+                        maxlen=tf.shape(logits_lm)[1],
+                        dtype=logits_lm.dtype)
+                    lm_loss = tf.reduce_sum(crossent_lm * mask_lm)/tf.reduce_sum(mask_lm)
+                    loss += lm_loss
 
                 if self.args.musk_update:
                     self.idx_update = self.deserve_idx(
@@ -185,8 +217,6 @@ class CTCLMModel(Seq2SeqModel):
         if `len_logits` is all zero. then outputs the 0
         """
         from tfModels.OCDLoss import OCD_loss
-        # labels = tf.Print(labels, [tf.shape(logits), len_logits], message='len_logits: ', summarize=1000)
-
 
         optimal_distributions, optimal_targets = OCD_loss(
             hyp=decoded,
@@ -224,7 +254,6 @@ class CTCLMModel(Seq2SeqModel):
         batch major
         """
         l = tf.reduce_min([tf.shape(logits)[1], tf.shape(labels)[1]])
-        # l = tf.Print(l , [l, tf.shape(logits), tf.shape(labels)], message='l, tf.shape(logits), tf.shape(labels): ', summarize=1000)
         with tf.name_scope('CE_loss'):
             crossent = smoothing_cross_entropy(
                 logits=logits[:, :l, :],
@@ -242,7 +271,12 @@ class CTCLMModel(Seq2SeqModel):
                 dtype=logits.dtype)
             mask *= mask2
             # there must be reduce_sum not reduce_mean, for the valid token number is less
-            loss = tf.reduce_sum(crossent * mask)
+            loss = tf.reduce_sum(crossent * mask, -1)
+
+            if self.args.model.decoder2.confidence_penalty > 0: # utt-level
+                cp_loss = self.args.model.decoder2.confidence_penalty * \
+                            confidence_penalty(logits, len_logits)
+                loss += cp_loss
 
             if self.args.model.token_level_ocd: # token-level
                 loss /= tf.reduce_sum(mask)

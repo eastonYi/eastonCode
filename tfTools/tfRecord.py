@@ -134,7 +134,7 @@ def readTFRecord(dir_data, args, _shuffle=False, transform=False):
     )
 
     feature = tf.reshape(tf.decode_raw(features['feature'], tf.float32),
-        [-1, args.data.dim_feature])[:2000, :]
+        [-1, args.data.dim_feature])[:3000, :]
     # id = tf.decode_raw(features['id'], tf.string)
     label = tf.decode_raw(features['label'], tf.int32)
 
@@ -211,7 +211,8 @@ class TFReader:
         self.is_train = is_train
         self.args = args
         self.sess = None
-
+        self.list_batch_size = self.args.list_batch_size
+        self.list_bucket_boundaries = self.args.list_bucket_boundaries
         if args.phone:
             self.feat, self.label, self.phone = readTFRecord_multilabel(
                 dir_tfdata,
@@ -259,10 +260,10 @@ class TFReader:
         _, list_outputs = tf.contrib.training.bucket_by_sequence_length(
             input_length=list_inputs[2],
             tensors=list_inputs,
-            batch_size=self.args.list_batch_size,
-            bucket_boundaries=self.args.list_bucket_boundaries,
+            batch_size=self.list_batch_size,
+            bucket_boundaries=self.list_bucket_boundaries,
             num_threads=8,
-            bucket_capacities=[i*3 for i in self.args.list_batch_size],
+            bucket_capacities=[i*3 for i in self.list_batch_size],
             capacity=2000,
             dynamic_pad=True,
             allow_smaller_final_batch=True)
