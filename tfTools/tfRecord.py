@@ -134,7 +134,7 @@ def readTFRecord(dir_data, args, _shuffle=False, transform=False):
     )
 
     feature = tf.reshape(tf.decode_raw(features['feature'], tf.float32),
-        [-1, args.data.dim_feature])[:3000, :]
+                         [-1, args.data.dim_feature])[:3000, :]
     # id = tf.decode_raw(features['id'], tf.string)
     label = tf.decode_raw(features['label'], tf.int32)
 
