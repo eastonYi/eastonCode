@@ -165,8 +165,7 @@ class AC_LM_Decoder(object):
     #         is_train=self.is_train,
     #         keep_prob=1-self.dropout,
     #         rnn_mode='BLOCK',
-    #         num_layers=self.num_layers,
-    #         dim_output=self.dim_output)
+    #         num_layers=self.num_layers)
     #
     #     # collect the initial states of lstms used in decoder.
     #     all_initial_states = {}

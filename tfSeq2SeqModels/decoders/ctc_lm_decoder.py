@@ -28,7 +28,7 @@ class CTC_LM_Decoder(RNADecoder):
         self.dropout = args.model.decoder2.dropout
         dim_ctc_output = args.dim_ctc_output if args.dim_ctc_output else args.dim_output
         dim_encoder_output = args.model.encoder.bottleneck if args.model.encoder.bottleneck else args.model.encoder.num_cell_units
-        frame_expand = 3 if args.model.use_neighbor_frames else 1
+        frame_expand = (3 if args.model.use_neighbor_frames else 1) * args.model.frame_expand
         self.num_cell_units_en = frame_expand * dim_encoder_output \
                                 if args.model.shrink_hidden else dim_ctc_output
         self.size_embedding = args.model.decoder2.size_embedding
@@ -53,8 +53,7 @@ class CTC_LM_Decoder(RNADecoder):
             is_train=self.is_train,
             keep_prob=1-self.dropout,
             rnn_mode='BLOCK',
-            num_layers=self.num_layers,
-            dim_output=self.dim_output)
+            num_layers=self.num_layers)
         # collect the initial states of lstms used in decoder.
         all_initial_states = {}
         all_initial_states["state_decoder"] = self.zero_state(batch_size, dtype=tf.float32)
@@ -193,8 +192,7 @@ class CTC_LM_Decoder(RNADecoder):
             is_train=self.is_train,
             keep_prob=1-self.dropout,
             rnn_mode='BLOCK',
-            num_layers=self.num_layers,
-            dim_output=self.dim_output)
+            num_layers=self.num_layers)
 
         # collect the initial states of lstms used in decoder.
         all_initial_states = {}
@@ -363,8 +361,7 @@ class CTC_LM_Decoder(RNADecoder):
             is_train=self.is_train,
             keep_prob=1-self.dropout,
             rnn_mode='BLOCK',
-            num_layers=self.num_layers,
-            dim_output=self.dim_output)
+            num_layers=self.num_layers)
         # collect the initial states of lstms used in decoder.
         all_initial_states = {}
         all_initial_states["state_decoder"] = self.zero_state(batch_size, dtype=tf.float32)

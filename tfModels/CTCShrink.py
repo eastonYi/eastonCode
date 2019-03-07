@@ -39,6 +39,23 @@ def add_avg_hidden(list_hidden, list_frames):
         del list_frames[:]
 
 
+def add_middle_hidden(list_hidden, list_frames):
+    if list_frames:
+        frames = list_frames
+        # frames, weights = list(zip(*list_frames))
+        h = frames[int(len(list_frames)/2)]
+        list_hidden.append(h)
+        del list_frames[:]
+
+
+def add_7_middle_hiddens(list_hidden, list_frames, frames):
+    if list_frames:
+        null = np.zeros_like(frames[0])
+        h = np.concatenate(list(frames) + [null]*(7-len(frames)))
+        list_hidden.append(h)
+        del list_frames[:]
+
+
 def add_concate_hidden(list_hidden, list_frames, num=4):
     if list_frames:
         # frames, _ = list(zip(*list_frames))
@@ -75,17 +92,23 @@ def acoustic_hidden_shrink(hidden, alignments, len_acoustic, blank_id, num_frame
                 token_pre = None
                 # if num_post>0 and list_frames:
                 #     list_frames.extend([*_hidden[t+1: min(t+num_post+1, len_acoustic[i]-1)]])
-                add_avg_hidden(list_hidden, list_frames)
+                # add_middle_hidden(list_hidden, list_frames)
+                add_7_middle_hiddens(list_hidden, list_frames, _hidden[max(0,t-3):t+4])
+                # add_avg_hidden(list_hidden, list_frames)
                 # add_concate_hidden(list_hidden, list_frames, num_frames)
             else:
                 # a new no blank
-                add_avg_hidden(list_hidden, list_frames)
+                # add_middle_hidden(list_hidden, list_frames)
+                add_7_middle_hiddens(list_hidden, list_frames, _hidden[max(0,t-3):t+4])
+                # add_avg_hidden(list_hidden, list_frames)
                 # add_concate_hidden(list_hidden, list_frames, num_frames)
                 token_pre = alignments[i][t]
                 # p = distribution_acoustic[i][t][token_pre]
                 list_frames = [h]
 
-        add_avg_hidden(list_hidden, list_frames)
+        # add_middle_hidden(list_hidden, list_frames)
+        add_7_middle_hiddens(list_hidden, list_frames, _hidden[max(0,t-3):t+4])
+        # add_avg_hidden(list_hidden, list_frames)
         # add_concate_hidden(list_hidden, list_frames, num_frames)
 
         list_batch.append(list_hidden)
@@ -205,7 +228,6 @@ def acoustic_hidden_shrink_v2(distribution_acoustic, hidden, len_acoustic, blank
     batch_size = tf.shape(hidden)[0]
     maxlen_sent = tf.shape(num_repeated_frames)[1]
     size_hidden = hidden.get_shape()[-1]
-    size_hidden_tf = tf.convert_to_tensor(size_hidden)
     frames_shrunk_init = tf.zeros([1, size_hidden])
     acoustic_shrunk_init = tf.zeros([1, maxlen_sent, size_hidden])
     def sent(i, step_in_batch, acoustic_shrunk):
@@ -213,6 +235,70 @@ def acoustic_hidden_shrink_v2(distribution_acoustic, hidden, len_acoustic, blank
         def step(j, i, step_in_batch, frames_shrunk):
             indices = tf.where(musk_repeated[step_in_batch] > 0)
             frame = tf.reduce_mean(tf.gather(hidden[i], indices[:, 0]), 0)
+            frames_shrunk = tf.concat([frames_shrunk,
+                                       frame[None, :]], 0)
+
+            return j+1, i, step_in_batch+1, frames_shrunk
+
+        _, _, step_in_batch, frames_shrunk = tf.while_loop(
+            cond=lambda j, *_: tf.less(j, len_label[i]),
+            body=step,
+            loop_vars=[0, i, step_in_batch, frames_shrunk_init],
+            shape_invariants=[tf.TensorShape([]),
+                              tf.TensorShape([]),
+                              tf.TensorShape([]),
+                              tf.TensorShape([None, size_hidden])])
+        frames_shrunk = tf.concat([frames_shrunk[1:],
+                                   tf.zeros([maxlen_sent-len_label[i], size_hidden])], 0)
+        acoustic_shrunk = tf.concat([acoustic_shrunk,
+                                     frames_shrunk[None, :]], 0)
+
+        return i+1, step_in_batch, acoustic_shrunk
+
+    _, _, acoustic_shrunk = tf.while_loop(
+        cond=lambda i, *_: tf.less(i, batch_size),
+        body=sent,
+        loop_vars=[0, 0, acoustic_shrunk_init],
+        shape_invariants=[tf.TensorShape([]),
+                          tf.TensorShape([]),
+                          tf.TensorShape([None, None, size_hidden])])
+
+    acoustic_shrunk = acoustic_shrunk[1:]
+
+    return acoustic_shrunk, len_label
+
+
+def acoustic_hidden_shrink_v3(distribution_acoustic, hidden, len_acoustic, blank_id, frame_expand):
+    """
+    alignments: [b, t]
+    hidden: [b x t x h]
+    num_repeated_frames: [b x u]
+    len_label: [b]
+    musk_repeated: [bxu, t]
+
+    asserts : 1. step_in_batch should be ended as bxu-1
+
+    NOTATION: each sent in the batch at least has length of 1
+    fix the number of frames for a char is 7
+    """
+    alignments = tf.argmax(distribution_acoustic, -1)
+    _, len_label, musk_repeated = analysis_alignments_tf(alignments, len_acoustic, blank_id)
+    batch_size = tf.shape(hidden)[0]
+    len_time = tf.shape(hidden)[1]
+    maxlen_sent = tf.reduce_max(len_label)
+    size_hidden = hidden.get_shape()[-1]*frame_expand
+    size_hidden_tf = tf.shape(hidden)[-1]*frame_expand
+    frames_shrunk_init = tf.zeros([1, size_hidden])
+    acoustic_shrunk_init = tf.zeros([1, maxlen_sent, size_hidden])
+    def sent(i, step_in_batch, acoustic_shrunk):
+
+        def step(j, i, step_in_batch, frames_shrunk):
+            middle_index = tf.to_int32(tf.reduce_mean(tf.where(musk_repeated[step_in_batch]>0)))
+            indices = tf.range(tf.reduce_max([middle_index-3, 0]),
+                               tf.reduce_min([middle_index+4, len_time]))
+            frame = tf.reshape(tf.gather(hidden[i], indices), [-1])
+            pad = tf.zeros([size_hidden_tf-tf.size(frame)])
+            frame = tf.concat([frame, pad], 0)
             frames_shrunk = tf.concat([frames_shrunk,
                                        frame[None, :]], 0)
 

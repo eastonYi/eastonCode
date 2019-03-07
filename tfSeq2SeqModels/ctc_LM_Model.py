@@ -67,12 +67,13 @@ class CTCLMModel(Seq2SeqModel):
             blank_id = self.args.dim_ctc_output-1 if self.args.dim_ctc_output else self.args.dim_output-1
             if self.args.model.avg_repeated:
                 if self.args.model.true_end2end:
-                    from tfModels.CTCShrink import acoustic_hidden_shrink_v2
-                    hidden_shrunk, len_no_blank = acoustic_hidden_shrink_v2(
+                    from tfModels.CTCShrink import acoustic_hidden_shrink_v3
+                    hidden_shrunk, len_no_blank = acoustic_hidden_shrink_v3(
                         distribution_acoustic,
                         hidden_output,
                         len_acoustic,
-                        blank_id)
+                        blank_id,
+                        self.args.model.frame_expand)
                 else:
                     from tfModels.CTCShrink import acoustic_hidden_shrink_tf
                     hidden_shrunk, len_no_blank = acoustic_hidden_shrink_tf(
