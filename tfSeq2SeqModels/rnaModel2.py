@@ -55,7 +55,7 @@ class RNAModel(Seq2SeqModel):
         if self.is_train:
             return loss, gradients
         else:
-            return logits, len_encoded, sample_id
+            return logits, len_decoded, sample_id
 
     def build_infer_graph(self):
         tensors_input = self.build_infer_input()

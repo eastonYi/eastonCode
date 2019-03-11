@@ -93,12 +93,12 @@ class Seq2SeqPolicyModel(Seq2SeqModel):
                 encoded=encoded,
                 len_encoded=len_encoded,
                 tensors_input=tensors_input)
-            logits, sample_id, len_decode = decoder(decoder_input)
+            logits, sample_id, len_decoded = decoder(decoder_input)
 
             if self.is_train:
                 sample_sparse = dense_sequence_to_sparse(
                     sequences=sample_id,
-                    sequence_lengths=len_decode)
+                    sequence_lengths=len_decoded)
                 label_sparse = dense_sequence_to_sparse(
                     sequences=decoder_input.output_labels,
                     sequence_lengths=decoder_input.len_labels)
@@ -116,7 +116,7 @@ class Seq2SeqPolicyModel(Seq2SeqModel):
                 loss, batch_loss = self.policy_ce_loss(
                     logits=logits,
                     labels=sample_id,
-                    len_labels=len_decode,
+                    len_labels=len_decoded,
                     batch_reward=reward)
 
                 with tf.name_scope("gradients"):

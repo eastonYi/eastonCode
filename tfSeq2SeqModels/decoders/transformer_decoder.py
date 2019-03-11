@@ -53,14 +53,15 @@ class Transformer_Decoder(RNADecoder):
         need to output score
         """
         batch_size = tf.shape(encoded)[0]
-        blank_id = self.dim_output-1
-        token_init = tf.fill([batch_size, 1], blank_id)
+        token_init = tf.fill([batch_size, 1], self.start_token)
         logits_init = tf.zeros([batch_size, 1, self.dim_output], dtype=tf.float32)
+        finished = tf.zeros([batch_size], dtype=tf.bool)
+        len_decoded = tf.zeros([batch_size], dtype=tf.int32)
         cache_decoder_init = tf.zeros([batch_size, 0, self.num_blocks, self.num_cell_units])
         encoder_padding = tf.sequence_mask(len_encoded, maxlen=tf.shape(encoded)[1])
         encoder_attention_bias = common_attention.attention_bias_ignore_padding(encoder_padding)
 
-        def step(i, preds, cache_decoder, logits):
+        def step(i, preds, cache_decoder, logits, len_decoded, finished):
 
             preds_emb = self.embedding(preds)
             decoder_input = preds_emb
@@ -82,24 +83,40 @@ class Transformer_Decoder(RNADecoder):
             preds = tf.concat([preds, cur_ids[:, None]], axis=1)
             logits = tf.concat([logits, cur_logit[:, None]], 1)
 
-            return i+1, preds, cache_decoder, logits
+            # Whether sequences finished.
+            has_eos = tf.equal(cur_ids, self.end_token)
+            finished = tf.logical_or(finished, has_eos)
+            len_decoded += 1-tf.to_int32(finished)
+            # i = tf.Print(i, [i, cur_ids[:, None], preds], message='finished: ', summarize=1000)
 
-        _, preds, _, logits = tf.while_loop(
-            cond=lambda i, *_: tf.less(i, tf.shape(encoded)[1]),
+            return i+1, preds, cache_decoder, logits, len_decoded, finished
+
+        def not_finished(i, preds, cache, logit, len_decoded, finished):
+            return tf.logical_and(
+                tf.reduce_any(tf.logical_not(finished)),
+                tf.less(
+                    i,
+                    tf.reduce_min([tf.shape(encoded)[1], 100]) # maxlen = 100
+                )
+            )
+
+        _, preds, _, logits, len_decoded, _ = tf.while_loop(
+            cond=not_finished,
             body=step,
-            loop_vars=[0, token_init, cache_decoder_init, logits_init],
+            loop_vars=[0, token_init, cache_decoder_init, logits_init, len_decoded, finished],
             shape_invariants=[tf.TensorShape([]),
                               tf.TensorShape([None, None]),
                               tf.TensorShape([None, None, None, None]),
-                              tf.TensorShape([None, None, self.dim_output])]
+                              tf.TensorShape([None, None, self.dim_output]),
+                              tf.TensorShape([None]),
+                              tf.TensorShape([None])]
             )
-
         logits = logits[:, 1:, :]
         preds = preds[:, 1:]
-        not_padding = tf.to_int32(tf.sequence_mask(len_encoded, maxlen=tf.shape(encoded)[1]))
+        not_padding = tf.to_int32(tf.sequence_mask(len_decoded, maxlen=tf.shape(encoded)[1]))
         preds = tf.multiply(tf.to_int32(preds), not_padding)
 
-        return logits, preds, len_encoded
+        return logits, preds, len_decoded
 
     def decoder_with_caching_impl(self, decoder_input, decoder_cache, encoder_output, encoder_attention_bias):
         # Positional Encoding
@@ -165,6 +182,7 @@ class Transformer_Decoder(RNADecoder):
     def decoder_impl(self, decoder_input, encoder_output, len_encoded):
 
         # encoder_padding = tf.equal(tf.reduce_sum(tf.abs(encoder_output), axis=-1), 0.0)
+        # encoder_output = tf.Print(encoder_output, [tf.shape(encoder_output)], message='encoder_output: ', summarize=1000)
         encoder_padding = tf.sequence_mask(len_encoded, maxlen=tf.shape(encoder_output)[1])
         encoder_attention_bias = common_attention.attention_bias_ignore_padding(encoder_padding)
 

@@ -49,7 +49,7 @@ class RNALMModel(RNAModel):
                     encoded=encoded,
                     len_encoded=len_encoded)
 
-            logits, decoded, len_decode = decoder(encoded, len_encoded)
+            logits, decoded, len_decoded = decoder(encoded, len_encoded)
 
             if self.is_train:
                 loss = 0
@@ -65,7 +65,7 @@ class RNALMModel(RNAModel):
                 if self.args.OCD_train > 0:
                     ocd_loss = self.args.OCD_train * self.ocd_loss(
                         logits=logits,
-                        len_logits=len_decode,
+                        len_logits=len_decoded,
                         labels=tensors_input.label_splits[id_gpu],
                         decoded=decoded)
                     loss += ocd_loss
@@ -81,7 +81,7 @@ class RNALMModel(RNAModel):
             return loss, gradients, [decoded, tensors_input.label_splits[id_gpu], ocd_loss]
             # return loss, gradients, tf.no_op()
         else:
-            return logits, len_encoded, decoded
+            return logits, len_decoded, decoded
 
     def build_infer_graph(self):
         tensors_input = self.build_infer_input()

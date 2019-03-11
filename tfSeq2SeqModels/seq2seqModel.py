@@ -78,7 +78,7 @@ class Seq2SeqModel(LSTM_Model):
                 len_labels=decoder_input.len_labels,
                 batch_size=tf.shape(len_encoded)[0])
 
-            logits, sample_id, len_decode = decoder(encoded, len_encoded)
+            logits, sample_id, len_decoded = decoder(encoded, len_encoded)
 
             if self.is_train:
                 if self.args.OCD_train:
@@ -86,7 +86,7 @@ class Seq2SeqModel(LSTM_Model):
                     # logits = tf.Print(logits, [tf.shape(logits[0])], message='logits shape: ', summarize=1000)
                     loss, (optimal_targets, optimal_distributions) = self.ocd_loss(
                         logits=logits,
-                        len_logits=len_decode,
+                        len_logits=len_decoded,
                         labels=tensors_input.label_splits[id_gpu],
                         sample_id=sample_id)
                 else:
@@ -105,9 +105,9 @@ class Seq2SeqModel(LSTM_Model):
         if self.is_train:
             # no_op is preserved for debug info to pass
             # return loss, gradients, tf.no_op()
-            return loss, gradients, [len_decode, sample_id, tensors_input.label_splits[id_gpu]]
+            return loss, gradients, [len_decoded, sample_id, tensors_input.label_splits[id_gpu]]
         else:
-            return logits, len_encoded, sample_id
+            return logits, len_decoded, sample_id
 
     def build_infer_graph(self):
         tensors_input = self.build_infer_input()

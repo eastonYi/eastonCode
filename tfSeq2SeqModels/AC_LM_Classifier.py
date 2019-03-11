@@ -75,12 +75,12 @@ class AC_LM_Classifier(Seq2SeqModel):
             if (not self.is_train) and (self.args.beam_size>1):
                 # infer phrase
                 with tf.variable_scope(decoder.name or 'decoder'):
-                    logits, decoded, len_decode = decoder.beam_decode_rerank(
+                    logits, decoded, len_decoded = decoder.beam_decode_rerank(
                         hidden_shrunk,
                         len_no_blank)
             else:
                 # train phrase
-                logits, decoded, len_decode = decoder(hidden_shrunk, len_no_blank)
+                logits, decoded, len_decoded = decoder(hidden_shrunk, len_no_blank)
 
             if self.is_train:
                 if self.args.model.use_ce_loss:
@@ -92,20 +92,20 @@ class AC_LM_Classifier(Seq2SeqModel):
                 else:
                     loss = self.ocd_loss(
                         logits=logits,
-                        len_logits=len_decode,
+                        len_logits=len_decoded,
                         labels=tensors_input.label_splits[id_gpu],
                         decoded=decoded)
 
                 if self.args.model.confidence_penalty > 0: # utt-level
                     cp_loss = self.args.model.confidence_penalty * \
-                        confidence_penalty(logits, len_decode)/len_decode
+                        confidence_penalty(logits, len_decoded)/len_decoded
 
                     loss += cp_loss
 
                 if self.args.model.musk_update:
                     self.idx_update = self.deserve_idx(
                         decoded,
-                        len_decode,
+                        len_decoded,
                         tensors_input.label_splits[id_gpu],
                         tensors_input.len_label_splits[id_gpu])
                     loss = tf.reshape(tf.gather(loss, self.idx_update), [-1])
@@ -123,7 +123,7 @@ class AC_LM_Classifier(Seq2SeqModel):
             [decoded, tensors_input.label_splits[id_gpu], l2_loss]
             # return loss, gradients, tf.no_op()
         else:
-            return logits, len_acoustic, decoded
+            return logits, len_decoded, decoded
 
     def build_infer_graph(self):
         tensors_input = self.build_infer_input()
@@ -200,13 +200,13 @@ class AC_LM_Classifier(Seq2SeqModel):
         return loss
 
 
-    def deserve_idx(self, decoded, len_decode, labels, len_labels):
+    def deserve_idx(self, decoded, len_decoded, labels, len_labels):
         """
         if one sent is correct during training, then not to train on it
         """
         decoded_sparse = dense_sequence_to_sparse(
             seq=decoded,
-            len_seq=len_decode)
+            len_seq=len_decoded)
         label_sparse = dense_sequence_to_sparse(
             seq=labels,
             len_seq=len_labels)

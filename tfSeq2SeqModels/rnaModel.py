@@ -42,7 +42,7 @@ class RNAModel(Seq2SeqModel):
                     # fake logits!
                     decoded, logits = decoder.beam_decode_rerank(encoded, len_encoded)
             else:
-                logits, decoded, len_decode = decoder(encoded, len_encoded)
+                logits, decoded, len_decoded = decoder(encoded, len_encoded)
 
             if self.is_train:
                 loss = 0
@@ -58,10 +58,10 @@ class RNAModel(Seq2SeqModel):
                 if self.args.OCD_train > 0:
                     ocd_loss = self.args.OCD_train * self.ocd_loss(
                         logits=logits,
-                        len_logits=len_decode,
+                        len_logits=len_decoded,
                         labels=tensors_input.label_splits[id_gpu],
                         decoded=decoded,
-                        len_decode=len_decode)
+                        len_decoded=len_decoded)
                     assert ocd_loss.get_shape().ndims == loss.get_shape().ndims == 1
                     loss = rna_loss + ocd_loss
                 else:
@@ -79,7 +79,7 @@ class RNAModel(Seq2SeqModel):
             return loss, gradients, [decoded, tensors_input.label_splits[id_gpu], ocd_loss]
             # return loss, gradients, tf.no_op()
         else:
-            return logits, len_encoded, decoded
+            return logits, len_decoded, decoded
 
     def build_infer_graph(self):
         tensors_input = self.build_infer_input()
@@ -130,7 +130,7 @@ class RNAModel(Seq2SeqModel):
 
         return loss
 
-    def ocd_loss(self, logits, len_logits, labels, decoded, len_decode):
+    def ocd_loss(self, logits, len_logits, labels, decoded, len_decoded):
         """
         the logits length is the decoded length
         the len_labels is useless(??)
