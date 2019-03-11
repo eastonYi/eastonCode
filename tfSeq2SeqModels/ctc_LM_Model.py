@@ -48,11 +48,15 @@ class CTCLMModel(Seq2SeqModel):
                 global_step=self.global_step,
                 args=self.args,
                 name='decoder2')
+            self.schedule = decoder.schedule
 
-            hidden_output, len_hidden_output = self.encoder(
+            hidden_output, hidden_bottleneck, len_hidden_output = self.encoder(
                 features=tensors_input.feature_splits[id_gpu],
                 len_feas=tensors_input.len_fea_splits[id_gpu])
-            acoustic, alignment, len_acoustic = self.fc_decoder(hidden_output, len_hidden_output)
+            if self.args.model.true_end2end:
+                acoustic, alignment, len_acoustic = self.fc_decoder(hidden_output, len_hidden_output)
+            else:
+                acoustic, alignment, len_acoustic = self.fc_decoder(hidden_bottleneck, len_hidden_output)
 
             if not self.args.model.train_encoder:
                 acoustic = tf.stop_gradient(acoustic)
@@ -61,8 +65,10 @@ class CTCLMModel(Seq2SeqModel):
             distribution_acoustic = tf.nn.softmax(acoustic)
 
             # whether to shrink the hidden or the acoutic distribution
-            if not self.args.model.shrink_hidden:
+            if self.args.model.shrink_hidden == 'distribution':
                 hidden_output = distribution_acoustic
+            elif self.args.model.shrink_hidden == 'self-define':
+                hidden_output = hidden_bottleneck
 
             blank_id = self.args.dim_ctc_output-1 if self.args.dim_ctc_output else self.args.dim_output-1
             if self.args.model.avg_repeated:
@@ -74,6 +80,13 @@ class CTCLMModel(Seq2SeqModel):
                         len_acoustic,
                         blank_id,
                         self.args.model.frame_expand)
+                    # from tfModels.CTCShrink import acoustic_feature_shrink
+                    # hidden_shrunk, len_no_blank = acoustic_feature_shrink(
+                    #     distribution_acoustic,
+                    #     x,
+                    #     len_acoustic,
+                    #     blank_id,
+                    #     self.args.model.frame_expand)
                 else:
                     from tfModels.CTCShrink import acoustic_hidden_shrink_tf
                     hidden_shrunk, len_no_blank = acoustic_hidden_shrink_tf(
@@ -83,8 +96,7 @@ class CTCLMModel(Seq2SeqModel):
                         blank_id=blank_id,
                         frame_expand=self.args.model.frame_expand)
 
-
-                if self.is_train:
+                if self.is_train and self.args.model.dropout > 0.0:
                     hidden_shrunk = tf.nn.dropout(hidden_shrunk, keep_prob=1-self.args.model.dropout)
                 # from tfModels.CTCShrink import acoustic_hidden_shrink_v2
                 # hidden_shrunk, len_no_blank = acoustic_hidden_shrink_v2(
@@ -151,7 +163,7 @@ class CTCLMModel(Seq2SeqModel):
                         len_labels=tensors_input.len_label_splits[id_gpu])
                 else:
                     ctc_loss = tf.constant(0.0)
-                loss = ocd_loss + ctc_loss * (self.args.model.decoder.coefficient if self.args.model.decoder.coefficient else 1.0)
+                loss = self.schedule * ocd_loss + (1-self.schedule) * ctc_loss
 
                 if self.args.model.teacher_forcing and self.is_train:
                     decoder_input = decoder.build_input(

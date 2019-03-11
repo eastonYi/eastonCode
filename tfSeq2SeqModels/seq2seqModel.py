@@ -133,10 +133,11 @@ class Seq2SeqModel(LSTM_Model):
                 logits=logits,
                 labels=labels,
                 vocab_size=self.args.dim_output,
-                confidence=self.args.model.label_smoothing_confidence)
+                confidence=self.args.model.decoder.label_smoothing_confidence)
 
             mask = tf.sequence_mask(
                 len_labels,
+                maxlen=tf.shape(logits)[1],
                 dtype=logits.dtype)
             # there nust be reduce_sum not reduce_mean, for the valid token number is less
             loss = tf.reduce_sum(crossent * mask)/tf.reduce_sum(mask)

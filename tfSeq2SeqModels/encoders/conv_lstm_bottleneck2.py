@@ -12,6 +12,27 @@ from tfModels.tensor2tensor.common_layers import layer_norm
 class CONV_LSTM_Bottleneck(Encoder):
     '''VERY DEEP CONVOLUTIONAL NETWORKS FOR END-TO-END SPEECH RECOGNITION
     '''
+    def __call__(self, features, len_feas):
+        '''
+        Create the variables and do the forward computation
+
+        Args:
+            inputs: the inputs to the neural network, this is a dictionary of
+                [batch_size x time x ...] tensors
+            input_seq_length: The sequence lengths of the input utterances, this
+                is a dictionary of [batch_size] vectors
+            is_train: whether or not the network is in training mode
+
+        Returns:
+            - the outputs of the encoder as a dictionary of
+                [bath_size x time x ...] tensors
+            - the sequence lengths of the outputs as a dictionary of
+                [batch_size] tensors
+        '''
+        with tf.variable_scope(self.name or 'encoder'):
+            outputs, hidden, output_seq_length = self.encode(features, len_feas)
+
+        return outputs, hidden, output_seq_length
 
     def encode(self, features, len_feas):
         '''
@@ -46,17 +67,7 @@ class CONV_LSTM_Bottleneck(Encoder):
             stride=(2,2),
             padding='SAME',
             use_relu=True,
-            name="conv_1",
-            w_initializer=None,
-            norm_type='layer')
-        x = self.normal_conv(
-            inputs=x,
-            filter_num=num_filters,
-            kernel=(3,3),
-            stride=(2,2),
-            padding='SAME',
-            use_relu=True,
-            name="conv_2",
+            name="conv",
             w_initializer=None,
             norm_type='layer')
         x = conv_lstm(
@@ -64,42 +75,62 @@ class CONV_LSTM_Bottleneck(Encoder):
             kernel_size=(3,3),
             filters=num_filters)
 
-        size_feat = int(np.ceil(size_feat/4))*num_filters
-        size_length  = tf.cast(tf.ceil(tf.cast(size_length,tf.float32)/4), tf.int32)
-        len_sequence = tf.cast(tf.ceil(tf.cast(len_feas,tf.float32)/4), tf.int32)
+        size_feat = int(np.ceil(size_feat/2))*num_filters
+        size_length  = tf.cast(tf.ceil(tf.cast(size_length,tf.float32)/2), tf.int32)
+        len_sequence = tf.cast(tf.ceil(tf.cast(len_feas,tf.float32)/2), tf.int32)
         x = tf.reshape(x, [size_batch, size_length, size_feat])
 
         outputs = x
         output_seq_lengths = len_sequence
 
-        outputs = self.blstm(
+        outputs = self.lstm(
             hidden_output=outputs,
             len_feas=output_seq_lengths,
             num_cell_units=num_cell_units,
             use_residual=use_residual,
             dropout=dropout,
-            name='blstm_1')
+            name='lstm_1')
         outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'HALF', 1)
 
-        outputs = self.blstm(
+        outputs = self.lstm(
             hidden_output=outputs,
             len_feas=output_seq_lengths,
             num_cell_units=num_cell_units,
             use_residual=use_residual,
             dropout=dropout,
-            name='blstm_2')
+            name='lstm_2')
         outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'SAME', 2)
 
-        outputs = tf.layers.dense(
+        outputs = self.lstm(
+            hidden_output=outputs,
+            len_feas=output_seq_lengths,
+            num_cell_units=num_cell_units,
+            use_residual=use_residual,
+            dropout=dropout,
+            name='lstm_3')
+        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'HALF', 3)
+        # x = outputs
+
+        outputs = self.lstm(
+            hidden_output=outputs,
+            len_feas=output_seq_lengths,
+            num_cell_units=num_cell_units,
+            use_residual=use_residual,
+            dropout=dropout,
+            name='lstm_4')
+        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'SAME', 4)
+
+        outputs_bottleneck = tf.layers.dense(
             inputs=outputs,
             units=bottleneck,
             activation=None,
             use_bias=False,
             name='bottleneck')
+
         if self.args.model.encoder.constrain:
             outputs = tf.math.sigmoid(outputs)
 
-        return outputs, output_seq_lengths
+        return outputs, outputs_bottleneck, output_seq_lengths
 
     @staticmethod
     def normal_conv(inputs, filter_num, kernel, stride, padding, use_relu, name,
@@ -117,44 +148,19 @@ class CONV_LSTM_Bottleneck(Encoder):
 
         return output
 
-    @staticmethod
-    def blstm(hidden_output, len_feas, num_cell_units, use_residual, dropout, name):
-        num_cell_units /= 2
-
-        with tf.variable_scope(name):
-            f_cell = tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(num_cell_units)
-            b_cell = tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(num_cell_units)
-
-            x, _ = tf.nn.bidirectional_dynamic_rnn(
-                cell_fw=f_cell,
-                cell_bw=b_cell,
-                inputs=hidden_output,
-                dtype=tf.float32,
-                time_major=False,
-                sequence_length=len_feas)
-            x = tf.concat(x, 2)
-
-            if use_residual:
-                x = residual(hidden_output, x, dropout)
-
-        return x
 
     @staticmethod
     def lstm(hidden_output, len_feas, num_cell_units, use_residual, dropout, name):
-        num_cell_units /= 2
 
         with tf.variable_scope(name):
-            f_cell = tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(num_cell_units)
-            b_cell = tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(num_cell_units)
+            cell = tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(num_cell_units)
 
-            x, _ = tf.nn.bidirectional_dynamic_rnn(
-                cell_fw=f_cell,
-                cell_bw=b_cell,
+            x, _ = tf.nn.dynamic_rnn(
+                cell=cell,
                 inputs=hidden_output,
                 dtype=tf.float32,
                 time_major=False,
                 sequence_length=len_feas)
-            x = tf.concat(x, 2)
 
             if use_residual:
                 x = residual(hidden_output, x, dropout)
@@ -180,6 +186,9 @@ class CONV_LSTM_Bottleneck(Encoder):
         elif type == 'HALF':
             x = tf.layers.max_pooling2d(x, (2, 1), (2, 1), 'SAME')
             len_sequence = tf.cast(tf.ceil(tf.cast(len_sequence, tf.float32)/2), tf.int32)
+        elif type == 'HALF-HALF':
+            x = tf.layers.max_pooling2d(x, (4, 1), (4, 1), 'SAME')
+            len_sequence = tf.cast(tf.ceil(tf.cast(len_sequence, tf.float32)/4), tf.int32)
 
         x = tf.squeeze(x, axis=2)
 

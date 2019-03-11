@@ -33,18 +33,15 @@ class CTCModel(Seq2SeqModel):
                 global_step=self.global_step,
                 args=self.args)
             # using encoder to encode the inout sequence
-            hidden_output, len_hidden_output = encoder(
+            # hidden_output, len_hidden_output = encoder(
+            #     features=tensors_input.feature_splits[id_gpu],
+            #     len_feas=tensors_input.len_fea_splits[id_gpu])
+
+            hidden_output, (len_hidden_output, outputs_bottleneck) = encoder(
                 features=tensors_input.feature_splits[id_gpu],
                 len_feas=tensors_input.len_fea_splits[id_gpu])
-            logits, align, len_logits = decoder(hidden_output, len_hidden_output)
 
-            from tfModels.CTCShrink import acoustic_hidden_shrink_tf
-            hidden_shrunk, len_no_blank = acoustic_hidden_shrink_tf(
-                distribution_acoustic=logits,
-                hidden=hidden_output,
-                len_acoustic=len_logits,
-                blank_id=self.args.dim_output-1,
-                frame_expand=1)
+            logits, align, len_logits = decoder(hidden_output, len_hidden_output)
 
             if self.is_train:
                 loss = self.ctc_loss(
