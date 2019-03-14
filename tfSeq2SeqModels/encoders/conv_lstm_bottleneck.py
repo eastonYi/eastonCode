@@ -30,9 +30,9 @@ class CONV_LSTM_Bottleneck(Encoder):
                 [batch_size] tensors
         '''
         with tf.variable_scope(self.name or 'encoder'):
-            outputs, hidden, output_seq_length = self.encode(features, len_feas)
+            outputs, (output_seq_length, hidden) = self.encode(features, len_feas)
 
-        return outputs, hidden, output_seq_length
+        return outputs, (output_seq_length, hidden)
 
     def encode(self, features, len_feas):
         '''
@@ -138,7 +138,7 @@ class CONV_LSTM_Bottleneck(Encoder):
         if self.args.model.encoder.constrain:
             outputs = tf.math.sigmoid(outputs)
 
-        return outputs, outputs_bottleneck, output_seq_lengths
+        return outputs, (output_seq_lengths, outputs_bottleneck)
 
     @staticmethod
     def normal_conv(inputs, filter_num, kernel, stride, padding, use_relu, name,

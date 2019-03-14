@@ -51,9 +51,11 @@ class Transformer(Seq2SeqModel):
                 global_step=self.global_step,
                 args=self.args)
 
-            encoded, (len_encoded, _) = encoder(
+            _, (len_encoded, encoded) = encoder(
                 features=tensors_input.feature_splits[id_gpu],
                 len_feas=tensors_input.len_fea_splits[id_gpu])
+
+            # encoded = tf.zeros_like(encoded)
 
             decoder_input = decoder.build_input(
                 id_gpu=id_gpu,
@@ -61,25 +63,31 @@ class Transformer(Seq2SeqModel):
 
             with tf.variable_scope(self.name or 'decoder'):
                 if self.is_train:
-                    logits, preds, len_decoded = decoder.decode(
-                        encoded,
-                        len_encoded,
-                        decoder_input.input_labels)
+                    decoder_input_labels = decoder_input.input_labels * tf.sequence_mask(
+                        decoder_input.len_labels,
+                        maxlen=tf.shape(decoder_input.input_labels)[1],
+                        dtype=tf.int32)
+                    logits, preds, _ = decoder.decode(
+                        encoded=encoded,
+                        len_encoded=len_encoded,
+                        # decoder_input=decoder_input.input_labels)
+                        decoder_input=decoder_input_labels)
+
                 else:
                     logits, preds, len_decoded = decoder.decoder_with_caching(
                         encoded,
                         len_encoded,
                         decoder_input.input_labels)
-            # logits = tf.Print(logits, [tf.shape(logits)], message='logits:', summarize=1000)
 
             if self.is_train:
                 if self.args.OCD_train:
                     loss, (optimal_targets, optimal_distributions) = self.ocd_loss(
                         logits=logits,
-                        len_logits=len_decoded,
+                        len_logits=decoder_input.len_labels,
                         labels=tensors_input.label_splits[id_gpu],
                         preds=preds)
                 else:
+                    # logits = tf.Print(logits, [preds[:, 0]], message='preds: ', summarize=1000)
                     loss = self.ce_loss(
                         logits=logits,
                         # labels=decoder_input.output_labels[:, :tf.shape(logits)[1]],
@@ -96,6 +104,6 @@ class Transformer(Seq2SeqModel):
         if self.is_train:
             # no_op is preserved for debug info to pass
             # return loss, gradients, tf.no_op()
-            return loss, gradients, [len_decoded, preds, tensors_input.label_splits[id_gpu]]
+            return loss, gradients, [tf.no_op(), preds, tensors_input.label_splits[id_gpu]]
         else:
             return logits, len_decoded, preds

@@ -142,19 +142,32 @@ class CTCLMModel(Seq2SeqModel):
                 logits, decoded, len_decoded = decoder(hidden_shrunk, len_no_blank)
 
             if self.is_train:
-                if self.args.model.use_ce_loss:
+                if self.args.model.decoder_loss == 'CE':
                     ocd_loss = self.ce_loss(
                         logits=logits,
                         labels=tensors_input.label_splits[id_gpu],
                         len_logits=len_acoustic,
                         len_labels=tensors_input.len_label_splits[id_gpu])
-                else:
+                elif self.args.model.decoder_loss == 'OCD':
                     ocd_loss = self.ocd_loss(
                         logits=logits,
                         len_logits=len_decoded,
                         labels=tensors_input.label_splits[id_gpu],
                         decoded=decoded,
                         len_decoded=len_decoded)
+                elif self.args.model.decoder_loss == 'Premium_CE':
+                    
+                    table_targets_distributions = tf.nn.softmax(tf.constant(self.args.table_targets))
+
+                    ocd_loss = self.premium_ce_loss(
+                        logits=logits,
+                        labels=tensors_input.label_splits[id_gpu],
+                        table_targets_distributions=table_targets_distributions,
+                        len_logits=len_decoded,
+                        len_labels=tensors_input.len_label_splits[id_gpu])
+
+                else:
+                    logging.info('not found loss type for decoder!')
 
                 if self.args.model.train_encoder:
                     ctc_loss = self.ctc_loss(
@@ -319,6 +332,44 @@ class CTCLMModel(Seq2SeqModel):
             ls_loss = self.args.model.decoder.confidence_penalty * \
                         confidence_penalty(logits, len_logits)
             loss += ls_loss
+
+        return loss
+
+    def premium_ce_loss(self, logits, labels, table_targets_distributions, len_logits, len_labels):
+        """
+        Compute optimization loss.
+        batch major
+        """
+        l = tf.reduce_min([tf.shape(logits)[1], tf.shape(labels)[1]])
+        logits = logits[:, :l, :]
+        labels = labels[:, :l]
+
+        target_distributions = tf.nn.embedding_lookup(table_targets_distributions, labels)
+
+        with tf.name_scope('premium_ce_loss'):
+            try:
+                crossent = tf.nn.softmax_cross_entropy_with_logits_v2(
+                    labels=target_distributions,
+                    logits=logits)
+            except:
+                crossent = tf.nn.softmax_cross_entropy_with_logits(
+                    labels=target_distributions,
+                    logits=logits)
+
+            mask = tf.sequence_mask(
+                len_labels,
+                maxlen=l,
+                dtype=logits.dtype)
+            mask2 = tf.sequence_mask(
+                len_logits,
+                maxlen=l,
+                dtype=logits.dtype)
+            mask *= mask2
+            # there must be reduce_sum not reduce_mean, for the valid token number is less
+            loss = tf.reduce_sum(crossent * mask, -1)
+
+            if self.args.model.token_level_ocd: # token-level
+                loss /= tf.reduce_sum(mask)
 
         return loss
 

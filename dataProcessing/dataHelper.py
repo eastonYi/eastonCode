@@ -178,10 +178,6 @@ class ASR_multilabel_scp_DataSet(ASRDataSet):
             sample['feature'] = process_raw_feature(sample['feature'], self.args)
 
         try:
-            sample['feature'] = self.reader.read_utt_data(idx)
-            if self.transform:
-                sample['feature'] = process_raw_feature(sample['feature'], self.args)
-
             trans = self.id2trans[self.reader.utt_ids[idx]]
             sample['label'] = np.array(
                 [self.token2idx.get(token, self.token2idx['<unk>'])

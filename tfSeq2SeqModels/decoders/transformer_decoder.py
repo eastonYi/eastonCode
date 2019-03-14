@@ -44,6 +44,7 @@ class Transformer_Decoder(RNADecoder):
             self.args.dim_output,
             use_bias=False,
             name='decoder_fc')
+
         preds = tf.to_int32(tf.argmax(logits, axis=-1))
 
         return logits, preds, len_encoded
@@ -56,9 +57,9 @@ class Transformer_Decoder(RNADecoder):
         token_init = tf.fill([batch_size, 1], self.start_token)
         logits_init = tf.zeros([batch_size, 1, self.dim_output], dtype=tf.float32)
         finished = tf.zeros([batch_size], dtype=tf.bool)
-        len_decoded = tf.zeros([batch_size], dtype=tf.int32)
+        len_decoded = tf.ones([batch_size], dtype=tf.int32)
         cache_decoder_init = tf.zeros([batch_size, 0, self.num_blocks, self.num_cell_units])
-        encoder_padding = tf.sequence_mask(len_encoded, maxlen=tf.shape(encoded)[1])
+        encoder_padding = tf.equal(tf.sequence_mask(len_encoded, maxlen=tf.shape(encoded)[1]), False) # bool tensor
         encoder_attention_bias = common_attention.attention_bias_ignore_padding(encoder_padding)
 
         def step(i, preds, cache_decoder, logits, len_decoded, finished):
@@ -87,7 +88,6 @@ class Transformer_Decoder(RNADecoder):
             has_eos = tf.equal(cur_ids, self.end_token)
             finished = tf.logical_or(finished, has_eos)
             len_decoded += 1-tf.to_int32(finished)
-            # i = tf.Print(i, [i, cur_ids[:, None], preds], message='finished: ', summarize=1000)
 
             return i+1, preds, cache_decoder, logits, len_decoded, finished
 
@@ -100,7 +100,7 @@ class Transformer_Decoder(RNADecoder):
                 )
             )
 
-        _, preds, _, logits, len_decoded, _ = tf.while_loop(
+        i, preds, cache_decoder, logits, len_decoded, finished = tf.while_loop(
             cond=not_finished,
             body=step,
             loop_vars=[0, token_init, cache_decoder_init, logits_init, len_decoded, finished],
@@ -111,9 +111,11 @@ class Transformer_Decoder(RNADecoder):
                               tf.TensorShape([None]),
                               tf.TensorShape([None])]
             )
+        # len_decoded = tf.Print(len_decoded, [finished], message='finished: ', summarize=1000)
+        len_decoded -= 1-tf.to_int32(finished) # for decoded length cut by encoded length
         logits = logits[:, 1:, :]
         preds = preds[:, 1:]
-        not_padding = tf.to_int32(tf.sequence_mask(len_decoded, maxlen=tf.shape(encoded)[1]))
+        not_padding = tf.to_int32(tf.sequence_mask(len_decoded))
         preds = tf.multiply(tf.to_int32(preds), not_padding)
 
         return logits, preds, len_decoded
@@ -183,9 +185,11 @@ class Transformer_Decoder(RNADecoder):
 
         # encoder_padding = tf.equal(tf.reduce_sum(tf.abs(encoder_output), axis=-1), 0.0)
         # encoder_output = tf.Print(encoder_output, [tf.shape(encoder_output)], message='encoder_output: ', summarize=1000)
-        encoder_padding = tf.sequence_mask(len_encoded, maxlen=tf.shape(encoder_output)[1])
+        encoder_padding = tf.equal(tf.sequence_mask(len_encoded, maxlen=tf.shape(encoder_output)[1]), False) # bool tensor
+        # [-0 -0 -0 -0 -0 -0 -0 -0 -0 -1e+09] the pading place is -1e+09
         encoder_attention_bias = common_attention.attention_bias_ignore_padding(encoder_padding)
 
+        # decoder_input = tf.Print(decoder_input, [decoder_input[0][-5:]], message='encoder_output: ', summarize=1000)
         decoder_output = self.embedding(decoder_input)
         # Positional Encoding
         decoder_output += common_attention.add_timing_signal_1d(decoder_output)
@@ -220,6 +224,7 @@ class Transformer_Decoder(RNADecoder):
                                               query_antecedent=decoder_output,
                                               memory_antecedent=encoder_output,
                                               bias=encoder_attention_bias,
+                                              # bias=None,
                                               total_key_depth=self.num_cell_units,
                                               total_value_depth=self.num_cell_units,
                                               output_depth=self.num_cell_units,
