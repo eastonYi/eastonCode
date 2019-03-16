@@ -124,7 +124,8 @@ class CTCLMMultilabelModel(CTCLMModel):
                         len_labels=tensors_input.len_phone_splits[id_gpu])
                 else:
                     ctc_loss = tf.constant(0.0)
-                loss = self.schedule * ocd_loss + (1-self.schedule) * ctc_loss
+                # loss = self.schedule * ocd_loss + (1-self.schedule) * ctc_loss
+                loss = ctc_loss
 
                 with tf.name_scope("gradients"):
                     loss = tf.reduce_mean(loss)

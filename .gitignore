@@ -3,3 +3,7 @@ __pycache__
 dropped
 examples
 scp.sh
+projects/.*
+projects/.*
+*/*/.*
+.*

@@ -3,9 +3,6 @@ June 2017 by kyubyong park.
 kbpark.linguist@gmail.com.
 Modified by Easton.
 """
-
-import codecs
-import os
 import logging
 from argparse import ArgumentParser
 from collections import Counter, defaultdict
@@ -13,7 +10,8 @@ from tqdm import tqdm
 
 
 def load_vocab(path, vocab_size=None):
-    vocab = [line.split('\n')[0].split()[0] for line in codecs.open(path, 'r', 'utf-8')]
+    with open(path, encoding='utf8') as f:
+        vocab = [line.strip().split()[0] for line in f]
     vocab = vocab[:vocab_size] if vocab_size else vocab
     id_unk = vocab.index('<unk>')
     token2idx = defaultdict(lambda: id_unk)
@@ -43,13 +41,14 @@ def make_vocab(fpath, fname):
     Writes vocabulary line by line to `fname`.
     """
     word2cnt = Counter()
-    for l in codecs.open(fpath, 'r', 'utf-8'):
-        words = l.strip().split()[1:]
-        # words = l.strip().split(',')[1].split()
-        word2cnt.update(Counter(words))
+    with open(fpath, encoding='utf-8') as f:
+        for l in f:
+            words = l.strip().split()[1:]
+            # words = l.strip().split(',')[1].split()
+            word2cnt.update(Counter(words))
     word2cnt.update({"<pad>": 1000000000,
                      "<unk>": 100000000})
-    with codecs.open(fname, 'w', 'utf-8') as fout:
+    with open(fname, 'w', encoding='utf-8') as fout:
         for word, cnt in word2cnt.most_common():
             fout.write(u"{}\t{}\n".format(word, cnt))
     logging.info('Vocab path: {}\t size: {}'.format(fname, len(word2cnt)))

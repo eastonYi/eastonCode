@@ -54,7 +54,8 @@ class CTC_LM_SACA_Decoder(RNADecoder):
                                 tf.concat([encoded[:, :1, :], encoded[:, :-1, :]], 1)], -1)
 
         def step(i, preds, cache_decoder, logits):
-            encoder_output_i = tf.reshape(encoded[:, i, :], [batch_size, self.frame_expand, self.num_cell_units])
+            encoder_output_i = tf.reshape(encoded[:, i, :], [batch_size, self.frame_expand, self.args.model.encoder.bottleneck])
+            # encoder_output_i = tf.reshape(encoded[:, i, :], [batch_size, self.frame_expand, self.dim_output])
             encoder_attention_bias_i = tf.equal(tf.reduce_sum(tf.abs(encoder_output_i), axis=-1), 0.0)
             encoder_attention_bias_i = common_attention.attention_bias_ignore_padding(encoder_attention_bias_i)
 
