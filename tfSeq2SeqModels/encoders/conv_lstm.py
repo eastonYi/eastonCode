@@ -97,7 +97,7 @@ class CONV_LSTM(Encoder):
             name='blstm_4')
         outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'SAME', 4)
 
-        return outputs, (output_seq_lengths, x)
+        return outputs, (x, output_seq_lengths)
 
     @staticmethod
     def normal_conv(inputs, filter_num, kernel, stride, padding, use_relu, name,

@@ -37,8 +37,8 @@ class CTCModel(Seq2SeqModel):
             #     features=tensors_input.feature_splits[id_gpu],
             #     len_feas=tensors_input.len_fea_splits[id_gpu])
 
-            # hidden_output, _, len_hidden_output = encoder(
-            _, hidden_output, len_hidden_output = encoder(
+            hidden_output,( _, len_hidden_output) = encoder(
+            # _, hidden_output, len_hidden_output = encoder(
                 features=tensors_input.feature_splits[id_gpu],
                 len_feas=tensors_input.len_fea_splits[id_gpu])
 

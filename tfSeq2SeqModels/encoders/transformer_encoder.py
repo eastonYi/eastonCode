@@ -16,11 +16,11 @@ class Transformer_Encoder(Encoder):
     '''
 
     def encode(self, features, len_feas):
-        attention_dropout_rate = self.args.model.decoder.attention_dropout_rate if self.is_train else 0.0
-        residual_dropout_rate = self.args.model.decoder.residual_dropout_rate if self.is_train else 0.0
-        hidden_units = self.args.model.decoder.num_cell_units
-        num_heads = self.args.model.decoder.num_heads
-        num_blocks = self.args.model.decoder.num_blocks
+        attention_dropout_rate = self.args.model.encoder.attention_dropout_rate if self.is_train else 0.0
+        residual_dropout_rate = self.args.model.encoder.residual_dropout_rate if self.is_train else 0.0
+        hidden_units = self.args.model.encoder.num_cell_units
+        num_heads = self.args.model.encoder.num_heads
+        num_blocks = self.args.model.encoder.num_blocks
         self._ff_activation = tf.nn.relu
 
         # Mask

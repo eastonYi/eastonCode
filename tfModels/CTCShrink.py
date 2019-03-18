@@ -39,6 +39,14 @@ def add_avg_hidden(list_hidden, list_frames):
         del list_frames[:]
 
 
+def add_weighted_avg_hidden(list_hidden, list_frames):
+    if list_frames:
+        frames, weights = list(zip(*list_frames))
+        h = np.average(frames, axis=0, weights=weights)
+        list_hidden.append(h)
+        del list_frames[:]
+
+
 def add_middle_hidden(list_hidden, list_frames):
     if list_frames:
         frames = list_frames
@@ -66,7 +74,7 @@ def add_concate_hidden(list_hidden, list_frames, num=4):
         del list_frames[:]
 
 
-def acoustic_hidden_shrink(hidden, alignments, len_acoustic, blank_id, num_frames=1):
+def acoustic_hidden_shrink(hidden, distribution_acoustic, alignments, len_acoustic, blank_id, num_frames=1):
     """
     alignments: [b x t]
     distribution_acoustic: [b x t x v]
@@ -96,12 +104,14 @@ def acoustic_hidden_shrink(hidden, alignments, len_acoustic, blank_id, num_frame
                 # add_7_middle_hiddens(list_hidden, list_frames, _hidden[max(0,t-3):t+4])
                 # add_avg_hidden(list_hidden, list_frames)
                 add_concate_hidden(list_hidden, list_frames, num_frames)
+                # add_weighted_avg_hidden(list_hidden, list_frames)
             else:
                 # a new no blank
                 # add_middle_hidden(list_hidden, list_frames)
                 # add_7_middle_hiddens(list_hidden, list_frames, _hidden[max(0,t-3):t+4])
                 # add_avg_hidden(list_hidden, list_frames)
                 add_concate_hidden(list_hidden, list_frames, num_frames)
+                # add_weighted_avg_hidden(list_hidden, list_frames)
                 token_pre = alignments[i][t]
                 # p = distribution_acoustic[i][t][token_pre]
                 list_frames = [h]
@@ -110,6 +120,7 @@ def acoustic_hidden_shrink(hidden, alignments, len_acoustic, blank_id, num_frame
         # add_7_middle_hiddens(list_hidden, list_frames, _hidden[max(0,t-3):t+4])
         # add_avg_hidden(list_hidden, list_frames)
         add_concate_hidden(list_hidden, list_frames, num_frames)
+        # add_weighted_avg_hidden(list_hidden, list_frames)
 
         list_batch.append(list_hidden)
         list_len.append(len(list_hidden))
@@ -132,7 +143,7 @@ def acoustic_hidden_shrink_tf(distribution_acoustic, hidden, len_acoustic, blank
     NOTATION: the gradient will not pass over the input vars
     """
     alignments = tf.argmax(distribution_acoustic, -1)
-    hidden_shrunk, len_no_blank = tf.py_func(acoustic_hidden_shrink, [hidden, alignments, len_acoustic, blank_id, frame_expand],
+    hidden_shrunk, len_no_blank = tf.py_func(acoustic_hidden_shrink, [hidden, distribution_acoustic, alignments, len_acoustic, blank_id, frame_expand],
                       (tf.float32, tf.int32))
     hidden_shrunk.set_shape([None, None, frame_expand*hidden.get_shape()[-1]])
     len_no_blank.set_shape([None])

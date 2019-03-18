@@ -50,7 +50,7 @@ class CTCLMModel(Seq2SeqModel):
                 name='decoder2')
             self.schedule = decoder.schedule
 
-            hidden_output, hidden_bottleneck, len_hidden_output = self.encoder(
+            hidden_output, (len_hidden_output, hidden_bottleneck) = self.encoder(
                 features=tensors_input.feature_splits[id_gpu],
                 len_feas=tensors_input.len_fea_splits[id_gpu])
             if self.args.model.true_end2end:
@@ -156,7 +156,7 @@ class CTCLMModel(Seq2SeqModel):
                         decoded=decoded,
                         len_decoded=len_decoded)
                 elif self.args.model.decoder_loss == 'Premium_CE':
-                    
+
                     table_targets_distributions = tf.nn.softmax(tf.constant(self.args.table_targets))
 
                     ocd_loss = self.premium_ce_loss(
