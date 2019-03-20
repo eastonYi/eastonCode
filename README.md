@@ -1,11 +1,34 @@
+# An efficient end-to-end toolkit for ASR implemented with TensorFlow
+
+##  How to use
+1. Prepare Data
+    Transfer your raw audio data into tfdata for fast load during training.
+    ```python
+    python ../../dataset.py -c configs/demo.yaml
+    ```
+    Supporting `.ark` file which is the standard type in Kaldi.
+
+    Another thing this script will do is summarize the dataset and gives a proper bucket setting. This will iter your dataset. The bucket setting is related to your raw feature length and the frame skipping strategy (setting in your `.yaml`). So you need to reset you bucket boundary if you change them.
+
+2. Configure you `.yaml` file
+3. Train the model
+    ```python
+    python ../../main.py -c configs/demo.yaml
+    ```
+4. Infer with a trained model
+    ```python
+    python ../../main.py -m infer --gpu 0 -c configs/demo.yaml
+    ```
+
+
 # coding standard
 all the model files and utility files are here. We need to additionally prepare the project folder, where the batch loop and log pytho commands exist.
 
 # Tools
-## Data Tools
+- Data Tools
 the dataset and dataloader class. They are iterable objects and return data in numpy forms.
 
-## Config Tools
+- Config Tools
 read the .yaml files
 the `arguments.py` load the general configs into an object `args`. We process some parameters here.
 
@@ -32,7 +55,8 @@ When build seq2seq models, we could transfer the outer embeddings into the const
 Consider that not all encoders and  decoders need the embedding, such as ASR only need decoder embedding and CTC need neither embedding. So we control whether to create it by `en(de)coder.size_embedding`.
 
 ## CTC Models
-it uses the encoder folder
+it uses the encoder folder.
+The most recommand model to be a baseline for its simplicity, high efficient and performance.
 
 ## RNA Model
 it has the encoder-decoder framwork but use the ctc loss.

@@ -245,6 +245,8 @@ class LMDataSet(DataSet):
             with open(filename) as f:
                 for line in f:
                     line = line.strip().split()
+                    if len(line) > self.args.list_bucket_boundaries[-1]:
+                        continue
                     text_ids = [self.token2idx[word] for word in line]
                     src_ids = [self.start_id] + (text_ids if self.end_id else text_ids[:-1])
                     tar_ids = (text_ids + [self.end_id]) if self.end_id else text_ids

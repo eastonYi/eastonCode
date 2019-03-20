@@ -69,6 +69,8 @@ class CTCLMModel(Seq2SeqModel):
                 hidden_output = distribution_acoustic
             elif self.args.model.shrink_hidden == 'self-define':
                 hidden_output = hidden_bottleneck
+            elif self.args.model.shrink_hidden == 'hidden_output':
+                hidden_output = hidden_output
 
             blank_id = self.args.dim_ctc_output-1 if self.args.dim_ctc_output else self.args.dim_output-1
             if self.args.model.avg_repeated:

@@ -268,9 +268,10 @@ class Decoder(object):
         step_increasement = tf.to_float((prob_end-prob_start)/interim_steps)
         schedule = step_increasement * (global_step-start_warmup_steps) + prob_start
 
-        if prob_start > prob_end:
-            schedule = tf.minimum(tf.maximum(schedule, prob_end), prob_start)
-        else:
-            schedule = tf.minimum(tf.maximum(schedule, prob_start), prob_end)
+        # if prob_start > prob_end:
+        #     schedule = tf.minimum(tf.maximum(schedule, prob_end), prob_start)
+        # else:
+        #     schedule = tf.minimum(tf.maximum(schedule, prob_start), prob_end)
+        schedule = tf.clip_by_value(schedule, min(prob_start, prob_end), max(prob_start, prob_end))
 
         return schedule

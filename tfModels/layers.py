@@ -162,7 +162,7 @@ def make_multi_cell(num_cell_units, is_train, rnn_mode, keep_prob, num_layers):
     list_cells = [make_cell(num_cell_units, is_train, rnn_mode, keep_prob) for _ in range(num_layers)]
     # cell_proj = tf.contrib.rnn.OutputProjectionWrapper(
     #     cell=make_cell(num_cell_units, is_train, rnn_mode, keep_prob),
-    #     output_size=dim_output)
+    #     output_size=3725)
     # list_cells.append(cell_proj)
     multi_cell = tf.contrib.rnn.MultiRNNCell(list_cells, state_is_tuple=True)
 
