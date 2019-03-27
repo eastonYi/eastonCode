@@ -1,7 +1,7 @@
 '''@file model.py
 contains de Model class
 During the training , using greadysearch decoder, there is loss.
-During the dev/infer, using beamsearch decoder, there is no logits, therefor loss, only sample_idself.
+During the dev/infer, using beamsearch decoder, there is no logits, therefor loss, only preds self.
 because we cannot access label during the dev set and need to depend on last time decision.
 
 so, there is only infer and training
@@ -78,24 +78,35 @@ class Seq2SeqModel(LSTM_Model):
                 len_labels=decoder_input.len_labels,
                 batch_size=tf.shape(len_encoded)[0])
 
-            logits, sample_id, len_decoded = decoder(encoded, len_encoded)
+            logits, preds, len_decoded = decoder(encoded, len_encoded)
 
             if self.is_train:
-                if self.args.OCD_train:
+                if self.args.model.loss_type == 'OCD':
                     # logits = tf.Print(logits, [tensors_input.len_label_splits[id_gpu][0]], message='label length: ', summarize=1000)
                     # logits = tf.Print(logits, [tf.shape(logits[0])], message='logits shape: ', summarize=1000)
                     loss, (optimal_targets, optimal_distributions) = self.ocd_loss(
                         logits=logits,
                         len_logits=len_decoded,
                         labels=tensors_input.label_splits[id_gpu],
-                        sample_id=sample_id)
-                else:
+                        preds=preds)
+                elif self.args.model.loss_type == 'CE':
                     loss = self.ce_loss(
                         logits=logits,
                         labels=decoder_input.output_labels[:, :tf.shape(logits)[1]],
                         len_labels=decoder_input.len_labels)
+                elif self.args.model.loss_type == 'Premium_CE':
+                    table_targets_distributions = tf.nn.softmax(tf.constant(self.args.table_targets))
+                    loss = self.premium_ce_loss(
+                        logits=logits,
+                        labels=tensors_input.label_splits[id_gpu],
+                        table_targets_distributions=table_targets_distributions,
+                        len_labels=tensors_input.len_label_splits[id_gpu])
+                else:
+                    raise NotImplemented('NOT found loss type!')
 
                 with tf.name_scope("gradients"):
+                    assert loss.get_shape().ndims == 1
+                    loss = tf.reduce_mean(loss)
                     gradients = self.optimizer.compute_gradients(loss)
 
         self.__class__.num_Model += 1
@@ -105,23 +116,23 @@ class Seq2SeqModel(LSTM_Model):
         if self.is_train:
             # no_op is preserved for debug info to pass
             # return loss, gradients, tf.no_op()
-            return loss, gradients, [len_decoded, sample_id, tensors_input.label_splits[id_gpu]]
+            return loss, gradients, [len_decoded, preds, tensors_input.label_splits[id_gpu]]
         else:
-            return logits, len_decoded, sample_id
+            return logits, len_decoded, preds
 
     def build_infer_graph(self):
         tensors_input = self.build_infer_input()
 
         with tf.variable_scope(self.name, reuse=bool(self.__class__.num_Model)):
-            logits, len_logits, sample_id = self.build_single_graph(
+            logits, len_logits, preds = self.build_single_graph(
                 id_gpu=0,
                 name_gpu=self.list_gpu_devices[0],
                 tensors_input=tensors_input)
 
-        if sample_id.get_shape().ndims == 3:
-            sample_id = sample_id[:,:,0]
+        if preds.get_shape().ndims == 3:
+            preds = preds[:,:,0]
 
-        return sample_id, tensors_input.shape_batch, tf.no_op()
+        return preds, tensors_input.shape_batch, tf.no_op()
 
     def ce_loss(self, logits, labels, len_labels):
         """
@@ -140,16 +151,16 @@ class Seq2SeqModel(LSTM_Model):
                 maxlen=tf.shape(logits)[1],
                 dtype=logits.dtype)
             # there nust be reduce_sum not reduce_mean, for the valid token number is less
-            loss = tf.reduce_sum(crossent * mask)/tf.reduce_sum(mask)
+            loss = tf.reduce_sum(crossent * mask, -1)/tf.reduce_sum(mask, -1)
 
         return loss
 
-    def ocd_loss(self, logits, len_logits, labels, sample_id):
+    def ocd_loss(self, logits, len_logits, labels, preds):
         from tfModels.OCDLoss import OCD_loss
         from tfModels.tools import smoothing_distribution
 
         optimal_distributions, optimal_targets = OCD_loss(
-            hyp=sample_id,
+            hyp=preds,
             ref=labels,
             vocab_size=self.args.dim_output)
 
@@ -168,9 +179,35 @@ class Seq2SeqModel(LSTM_Model):
             maxlen=tf.shape(logits)[1],
             dtype=logits.dtype)
 
-        loss = tf.reduce_sum(crossent * pad_mask)/tf.reduce_sum(pad_mask)
+        loss = tf.reduce_sum(crossent * pad_mask, -1)/tf.reduce_sum(pad_mask, -1)
 
         return loss, [optimal_targets, optimal_distributions]
+
+    def premium_ce_loss(self, logits, labels, table_targets_distributions, len_labels):
+        """
+        Compute optimization loss.
+        batch major
+        """
+        target_distributions = tf.nn.embedding_lookup(table_targets_distributions, labels)
+
+        with tf.name_scope('premium_ce_loss'):
+            try:
+                crossent = tf.nn.softmax_cross_entropy_with_logits_v2(
+                    labels=target_distributions,
+                    logits=logits)
+            except:
+                crossent = tf.nn.softmax_cross_entropy_with_logits(
+                    labels=target_distributions,
+                    logits=logits)
+
+            mask = tf.sequence_mask(
+                len_labels,
+                maxlen=tf.shape(logits)[1],
+                dtype=logits.dtype)
+            # there must be reduce_sum not reduce_mean, for the valid token number is less
+            loss = tf.reduce_sum(crossent * mask, -1) / tf.reduce_sum(mask, -1)
+
+        return loss
 
     def build_idx_input(self):
         """

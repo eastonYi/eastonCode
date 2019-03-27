@@ -5,7 +5,7 @@ from collections import namedtuple
 from tensorflow.contrib.layers import fully_connected
 
 from tfTools.gradientTools import average_gradients, handle_gradients
-from tfModels.tools import warmup_exponential_decay, choose_device, lr_decay_with_warmup, stepped_down_decay, exponential_decay
+from tfModels.tools import warmup_exponential_decay, choose_device, lr_decay_with_warmup, stepped_down_decay, exponential_decay, size_variables
 from tfModels.layers import build_cell, cell_forward
 from tfModels.tensor2tensor.common_layers import layer_norm
 

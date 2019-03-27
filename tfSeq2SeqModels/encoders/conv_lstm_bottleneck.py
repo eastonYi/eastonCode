@@ -83,14 +83,6 @@ class CONV_LSTM_Bottleneck(Encoder):
         outputs = x
         output_seq_lengths = len_sequence
 
-        # outputs_bottleneck, _ = self.pooling(x, len_sequence, 'HALF-HALF', 0)
-        # outputs_bottleneck = tf.layers.dense(
-        #     inputs=outputs_bottleneck,
-        #     units=bottleneck,
-        #     activation=None,
-        #     use_bias=False,
-        #     name='bottleneck')
-
         outputs = self.blstm(
             hidden_output=outputs,
             len_feas=output_seq_lengths,

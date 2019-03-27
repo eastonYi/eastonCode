@@ -69,4 +69,4 @@ class Transformer_Encoder(Encoder):
         # Mask padding part to zeros.
         encoder_output *= tf.expand_dims(1.0 - tf.to_float(encoder_padding), axis=-1)
 
-        return encoder_output, (len_feas, encoder_output)
+        return encoder_output, len_feas

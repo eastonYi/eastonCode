@@ -121,9 +121,9 @@ class CTCLMModel(Seq2SeqModel):
 
             if (not self.is_train) and (self.args.beam_size>1):
                 # infer phrase
-                if self.args.dirs.lm_checkpoint:
-                    logging.info('beam search with language model ...')
-                    with tf.variable_scope(decoder.name or 'decoder'):
+                with tf.variable_scope(decoder.name or 'decoder'):
+                    if self.args.dirs.lm_checkpoint:
+                        logging.info('beam search with language model ...')
                         if self.args.model.rerank:
                             logits, decoded, len_decoded = decoder.beam_decode_rerank(
                                 hidden_shrunk,
@@ -132,9 +132,8 @@ class CTCLMModel(Seq2SeqModel):
                             logits, decoded, len_decoded = decoder.beam_decode_lm(
                                 hidden_shrunk,
                                 len_no_blank)
-                else:
-                    logging.info('beam search ...')
-                    with tf.variable_scope(decoder.name or 'decoder'):
+                    else:
+                        logging.info('beam search ...')
                         logits, decoded, len_decoded = decoder.beam_decode(
                             hidden_shrunk,
                             len_no_blank)
@@ -211,6 +210,7 @@ class CTCLMModel(Seq2SeqModel):
                     loss = tf.reshape(tf.gather(loss, self.idx_update), [-1])
 
                 with tf.name_scope("gradients"):
+                    assert loss.get_shape().ndims == 1
                     loss = tf.reduce_mean(loss)
                     gradients = self.optimizer.compute_gradients(loss)
 
@@ -308,7 +308,7 @@ class CTCLMModel(Seq2SeqModel):
                 loss += cp_loss
 
             if self.args.model.token_level_ocd: # token-level
-                loss /= tf.reduce_sum(mask)
+                loss /= tf.reduce_sum(mask, -1)
 
         return loss
 

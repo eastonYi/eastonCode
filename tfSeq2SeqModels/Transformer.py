@@ -55,14 +55,25 @@ class Transformer(Seq2SeqModel):
                 features=tensors_input.feature_splits[id_gpu],
                 len_feas=tensors_input.len_fea_splits[id_gpu])
 
-            # encoded = tf.zeros_like(encoded)
-
-            decoder_input = decoder.build_input(
-                id_gpu=id_gpu,
-                tensors_input=tensors_input)
-
-            with tf.variable_scope(self.name or 'decoder'):
-                if self.is_train:
+            with tf.variable_scope(decoder.name or 'decoder'):
+                decoder_input = decoder.build_input(
+                    id_gpu=id_gpu,
+                    tensors_input=tensors_input)
+                
+                if (not self.is_train) or (self.args.model.loss_type == 'OCD'):
+                    # infer phrases
+                    if self.args.dirs.lm_checkpoint and self.args.beam_size>1:
+                        logging.info('beam search with language model ...')
+                        logits, preds, len_decoded = decoder.beam_decode_rerank(
+                            encoded,
+                            len_encoded)
+                    else:
+                        logging.info('gready search ...')
+                        logits, preds, len_decoded = decoder.decoder_with_caching(
+                            encoded,
+                            len_encoded)
+                else:
+                    logging.info('teacher-forcing training ...')
                     decoder_input_labels = decoder_input.input_labels * tf.sequence_mask(
                         decoder_input.len_labels,
                         maxlen=tf.shape(decoder_input.input_labels)[1],
@@ -70,31 +81,43 @@ class Transformer(Seq2SeqModel):
                     logits, preds, _ = decoder.decode(
                         encoded=encoded,
                         len_encoded=len_encoded,
-                        # decoder_input=decoder_input.input_labels)
                         decoder_input=decoder_input_labels)
 
-                else:
-                    logits, preds, len_decoded = decoder.decoder_with_caching(
-                        encoded,
-                        len_encoded,
-                        decoder_input.input_labels)
-
             if self.is_train:
-                if self.args.OCD_train:
-                    loss, (optimal_targets, optimal_distributions) = self.ocd_loss(
+                if self.args.model.loss_type == 'OCD':
+                    """
+                    constrain the max decode length for ocd training since model
+                    will decode to that long at beginning. Recommend 30.
+                    """
+                    loss, _ = self.ocd_loss(
                         logits=logits,
-                        len_logits=decoder_input.len_labels,
+                        len_logits=len_decoded,
                         labels=tensors_input.label_splits[id_gpu],
                         preds=preds)
-                else:
+                    # loss = self.ce_loss(
+                    #     logits=logits,
+                    #     labels=preds,
+                    #     len_labels=len_decoded)
+                elif self.args.model.loss_type == 'CE':
                     # logits = tf.Print(logits, [preds[:, 0]], message='preds: ', summarize=1000)
                     loss = self.ce_loss(
                         logits=logits,
-                        # labels=decoder_input.output_labels[:, :tf.shape(logits)[1]],
                         labels=decoder_input.output_labels,
                         len_labels=decoder_input.len_labels)
 
+                elif self.args.model.loss_type == 'Premium_CE':
+                    table_targets_distributions = tf.nn.softmax(tf.constant(self.args.table_targets))
+                    loss = self.premium_ce_loss(
+                        logits=logits,
+                        labels=tensors_input.label_splits[id_gpu],
+                        table_targets_distributions=table_targets_distributions,
+                        len_labels=tensors_input.len_label_splits[id_gpu])
+                else:
+                    raise NotImplemented('NOT found loss type!')
+
                 with tf.name_scope("gradients"):
+                    assert loss.get_shape().ndims == 1
+                    loss = tf.reduce_mean(loss)
                     gradients = self.optimizer.compute_gradients(loss)
 
         self.__class__.num_Model += 1

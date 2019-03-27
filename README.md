@@ -30,9 +30,19 @@
 ## AIshell2
 |Model| Discription | Cost | dev | test |
 |:-----:|-------------|---|:-----:| :-----: |
-| Transformer  |  6 blockes for each side; <br> skip 3 frames | 4 GPU/21h/55k steps| 9.0 | |
+| Transformer  |  6 blockes for each side; <br> skip 3 frames | 4 GPU/21h/55k steps| 8.8 | 8.5 |
 |CTC   | CONV_BLSTM with 1600 hiddens states (800 for each direction); <br> confidence penalty 0.3 | 4 GPU/23h/33k steps |9.7  | |
 
+## HKUST
+|Model| Discription | Cost | train_dev | dev |
+|:-----:|-------------|---|:-----:| :-----: |
+| Transformer  |  6 blockes for each side; <br> skip 3 frames | 4 GPU/13h/35k steps| 32.6 | |
+|CTC   | CONV_BLSTM with 1600 hiddens states (800 for each direction); <br> confidence penalty 0.3 | 4 GPU/14.5h/21.5k steps | 26.9  | 27.8 |
+
+## LibriSpeech
+|Model| Discription | Cost | dev-clean | test-clean |
+|:-----:|-------------|---|:-----:| :-----: |
+|CTC   | CONV_BLSTM with 1600 hiddens states (800 for each direction); <br> confidence penalty 0.3 | 4 GPU/1d2h/28k steps |  | 6.9 |
 
 
 # Projects
@@ -62,6 +72,6 @@ Please look Projects for more details.
 all the model files and utility files are here. We need to additionally prepare the project folder, where the batch loop and log pytho commands exist.
 
 # Acknowledgements
-https://github.com/chqiwang/transformer
+https://github.com/chqiwang/transformer \\
 https://github.com/vrenkens/nabu
 ...

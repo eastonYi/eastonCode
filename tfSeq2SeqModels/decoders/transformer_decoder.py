@@ -35,7 +35,7 @@ class Transformer_Decoder(RNADecoder):
 
     def decode(self, encoded, len_encoded, decoder_input):
         """
-        need to output score
+        used for MLE training
         """
         decoder_output = self.decoder_impl(decoder_input, encoded, len_encoded)
 
@@ -49,15 +49,15 @@ class Transformer_Decoder(RNADecoder):
 
         return logits, preds, len_encoded
 
-    def decoder_with_caching(self, encoded, len_encoded, decoder_input):
+    def decoder_with_caching(self, encoded, len_encoded):
         """
-        need to output score
+        gread search, used for OCD training or infer
         """
         batch_size = tf.shape(encoded)[0]
         token_init = tf.fill([batch_size, 1], self.start_token)
         logits_init = tf.zeros([batch_size, 1, self.dim_output], dtype=tf.float32)
-        finished = tf.zeros([batch_size], dtype=tf.bool)
-        len_decoded = tf.ones([batch_size], dtype=tf.int32)
+        finished_init = tf.zeros([batch_size], dtype=tf.bool)
+        len_decoded_init = tf.ones([batch_size], dtype=tf.int32)
         cache_decoder_init = tf.zeros([batch_size, 0, self.num_blocks, self.num_cell_units])
         encoder_padding = tf.equal(tf.sequence_mask(len_encoded, maxlen=tf.shape(encoded)[1]), False) # bool tensor
         encoder_attention_bias = common_attention.attention_bias_ignore_padding(encoder_padding)
@@ -89,6 +89,8 @@ class Transformer_Decoder(RNADecoder):
             finished = tf.logical_or(finished, has_eos)
             len_decoded += 1-tf.to_int32(finished)
 
+            # i = tf.Print(i, [i, len_encoded], message='i, len_encoded', summarize=1000)
+
             return i+1, preds, cache_decoder, logits, len_decoded, finished
 
         def not_finished(i, preds, cache, logit, len_decoded, finished):
@@ -96,14 +98,14 @@ class Transformer_Decoder(RNADecoder):
                 tf.reduce_any(tf.logical_not(finished)),
                 tf.less(
                     i,
-                    tf.reduce_min([tf.shape(encoded)[1], 100]) # maxlen = 100
+                    tf.reduce_min([tf.shape(encoded)[1], 20 if self.is_train else 40]) # maxlen = 25
                 )
             )
 
         i, preds, cache_decoder, logits, len_decoded, finished = tf.while_loop(
             cond=not_finished,
             body=step,
-            loop_vars=[0, token_init, cache_decoder_init, logits_init, len_decoded, finished],
+            loop_vars=[0, token_init, cache_decoder_init, logits_init, len_decoded_init, finished_init],
             shape_invariants=[tf.TensorShape([]),
                               tf.TensorShape([None, None]),
                               tf.TensorShape([None, None, None, None]),
@@ -260,12 +262,17 @@ class Transformer_Decoder(RNADecoder):
                           multiples=[1, beam_size, 1, 1]) # [batch_size, beam_size, *, hidden_units]
         encoded = tf.reshape(encoded,
                              [batch_size * beam_size, -1, encoded.get_shape()[-1].value])
-        # [[<blk>, <blk>, ..., <blk>,]], shape: [batch_size * beam_size, 1]
+        len_encoded = tf.reshape(tf.tile(len_encoded[:, None], multiples=[1, beam_size]), [-1]) # [batch_size * beam_size]
+
+        # [[<S>, <S>, ..., <S>]], shape: [batch_size * beam_size, 1]
         token_init = tf.fill([batch_size * beam_size, 1], self.args.sos_idx)
         logits_init = tf.zeros([batch_size * beam_size, 1, self.dim_output], dtype=tf.float32)
+        len_decoded_init = tf.ones_like(len_encoded, dtype=tf.int32)
         # the score must be [0, -inf, -inf, ...] at init, for the preds in beam is same in init!!!
         scores = tf.constant([0.0] + [-inf] * (beam_size - 1), dtype=tf.float32)  # [beam_size]
         scores = tf.tile(scores, multiples=[batch_size])  # [batch_size * beam_size]
+        finished_init = tf.zeros_like(scores, dtype=tf.bool)
+
         cache_decoder_init = tf.zeros([batch_size*beam_size,
                                        0,
                                        self.num_blocks,
@@ -275,36 +282,35 @@ class Transformer_Decoder(RNADecoder):
                                self.lm.args.model.decoder.num_blocks,
                                self.lm.args.model.decoder.num_cell_units])
 
-
         # collect the initial states of lstms used in decoder.
         base_indices = tf.reshape(tf.tile(tf.range(batch_size)[:, None], multiples=[1, beam_size]), shape=[-1])
 
-        def step(i, preds, scores, cache_decoder, cache_lm, logits):
+        encoder_padding = tf.equal(tf.sequence_mask(len_encoded, maxlen=tf.shape(encoded)[1]), False) # bool tensor
+        encoder_attention_bias = common_attention.attention_bias_ignore_padding(encoder_padding)
+
+        def step(i, preds, scores, cache_decoder, cache_lm, logits, len_decoded, finished):
             """
             the cache has no specific shape, so no can be put in the all_states
             """
-            encoder_output_i = tf.reshape(encoded[:, i, :], [batch_size * beam_size, self.frame_expand, self.num_cell_units])
-            encoder_attention_bias_i = tf.equal(tf.reduce_sum(tf.abs(encoder_output_i), axis=-1), 0.0)
-            encoder_attention_bias_i = common_attention.attention_bias_ignore_padding(encoder_attention_bias_i)
-
             preds_emb = self.embedding(preds)
             decoder_input = preds_emb
 
             decoder_output, cache_decoder = self.decoder_with_caching_impl(
                 decoder_input,
                 cache_decoder,
-                encoder_output_i,
-                encoder_attention_bias_i)
+                encoded,
+                encoder_attention_bias)
 
             cur_logit = tf.layers.dense(
                 inputs=decoder_output[:, -1, :],
                 units=self.dim_output,
                 activation=None,
                 use_bias=False,
-                name='fully_connected')
+                name='decoder_fc')
 
             logits = tf.concat([logits, cur_logit[:, None]], 1)
             z = tf.nn.log_softmax(cur_logit) # [batch*beam, size_output]
+
             # the langueage model infer
             if self.args.model.shallow_fusion:
                 preds_emb = self.lm.decoder.embedding(preds)
@@ -317,7 +323,6 @@ class Transformer_Decoder(RNADecoder):
                             units=self.dim_output,
                             kernel=tf.transpose(self.lm.decoder.fully_connected),
                             use_bias=False)
-
                 z_lm = lambda_lm * tf.nn.log_softmax(logit_lm) # [batch*beam, size_output]
             else:
                 z_lm = tf.zeros_like(z)
@@ -342,26 +347,41 @@ class Transformer_Decoder(RNADecoder):
             cache = tf.gather(cache, indices=k_indices // beam_size)
             preds = tf.concat((preds, next_preds[:, None]), axis=1)  # [batch_size * beam_size, i]
 
-            return i+1, preds, scores, cache_decoder, cache_lm, logits
+            has_eos = tf.equal(next_preds, self.end_token)
+            finished = tf.logical_or(finished, has_eos)
+            len_decoded += 1-tf.to_int32(finished)
 
-        _, preds, scores_am, _, _, logits = tf.while_loop(
+            return i+1, preds, scores, cache_decoder, cache_lm, logits, len_decoded, finished
+
+        def not_finished(i, preds, scores, cache_decoder, cache_lm, logit, len_decoded, finished):
+            return tf.logical_and(
+                tf.reduce_any(tf.logical_not(finished)),
+                tf.less(
+                    i,
+                    tf.reduce_min([tf.shape(encoded)[1], 100]) # maxlen = 100
+                )
+            )
+
+        _, preds, scores_am, _, _, logits, len_decoded, finished = tf.while_loop(
             cond=lambda i, *_: tf.less(i, tf.shape(encoded)[1]),
             body=step,
-            loop_vars=[0, token_init, scores, cache_decoder_init, cache_init, logits_init],
+            loop_vars=[0, token_init, scores, cache_decoder_init, cache_init, logits_init, len_decoded_init, finished_init],
             shape_invariants=[tf.TensorShape([]),
                               tf.TensorShape([None, None]),
                               tf.TensorShape([None]),
                               tf.TensorShape([None, None, None, None]),
                               tf.TensorShape([None, None, None, None]),
-                              tf.TensorShape([None, None, self.dim_output])]
+                              tf.TensorShape([None, None, self.dim_output]),
+                              tf.TensorShape([None]),
+                              tf.TensorShape([None])]
             )
 
-        len_encoded = tf.reshape(tf.tile(len_encoded[:, None], multiples=[1, beam_size]), [-1])
         with tf.variable_scope(self.args.top_scope, reuse=True):
             with tf.variable_scope(self.args.lm_scope):
                 scores_lm, distribution = self.lm.decoder.score(preds, len_encoded)
 
         # [batch_size * beam_size, ...]
+        len_decoded -= 1-tf.to_int32(finished) # for decoded length cut by encoded length
         preds = preds[:, 1:]
         logits = logits[:, 1:, :]
         not_padding = tf.to_int32(tf.sequence_mask(len_encoded, maxlen=tf.shape(encoded)[1]))
@@ -391,7 +411,7 @@ class Transformer_Decoder(RNADecoder):
         len_encoded = tf.reshape(len_encoded, [batch_size, beam_size])
 
         # return logits, final_preds, len_encoded
-        return [preds_sorted, scores_am_sorted, scores_lm_sorted], preds_sorted[:, 0, :], len_encoded
+        return [preds_sorted, scores_am_sorted, scores_lm_sorted], preds_sorted[:, 0, :], len_decoded
 
     def forward(self, i, preds, state_decoder):
         """

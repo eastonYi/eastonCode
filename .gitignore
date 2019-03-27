@@ -7,3 +7,5 @@ projects/.*
 projects/.*
 */*/.*
 .*
+.DS_Stores
+.gitignore

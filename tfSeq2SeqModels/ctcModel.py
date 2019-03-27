@@ -33,14 +33,14 @@ class CTCModel(Seq2SeqModel):
                 global_step=self.global_step,
                 args=self.args)
             # using encoder to encode the inout sequence
-            # hidden_output, len_hidden_output = encoder(
-            #     features=tensors_input.feature_splits[id_gpu],
-            #     len_feas=tensors_input.len_fea_splits[id_gpu])
-
-            hidden_output,( _, len_hidden_output) = encoder(
-            # _, hidden_output, len_hidden_output = encoder(
+            hidden_output, len_hidden_output = encoder(
                 features=tensors_input.feature_splits[id_gpu],
                 len_feas=tensors_input.len_fea_splits[id_gpu])
+
+            # hidden_output,( _, len_hidden_output) = encoder(
+            # # _, hidden_output, len_hidden_output = encoder(
+            #     features=tensors_input.feature_splits[id_gpu],
+            #     len_feas=tensors_input.len_fea_splits[id_gpu])
 
             logits, align, len_logits = decoder(hidden_output, len_hidden_output)
 
@@ -50,6 +50,17 @@ class CTCModel(Seq2SeqModel):
                     len_logits=len_logits,
                     labels=tensors_input.label_splits[id_gpu],
                     len_labels=tensors_input.len_label_splits[id_gpu])
+
+                if self.args.model.balance_training:
+                    token_loss = loss / tf.to_float(len_logits)
+                    musk = tf.to_float(tf.greater(token_loss, self.args.model.balance_training))
+                    # musk = tf.Print(musk, [loss, tf.reduce_sum(musk)], message='musk num: ', summarize=1000)
+                    loss *= musk
+
+                if self.args.model.confidence_penalty:
+                    cp_loss = self.args.model.decoder.confidence_penalty * confidence_penalty(logits, len_logits)
+                    assert cp_loss.get_shape().ndims == 1
+                    loss += cp_loss
 
                 if self.args.model.constrain_repeated:
                     from tfModels.CTCShrink import repeated_constrain_loss
@@ -62,6 +73,8 @@ class CTCModel(Seq2SeqModel):
                     loss += self.args.model.constrain_repeated * loss_constrain
 
                 with tf.name_scope("gradients"):
+                    assert loss.get_shape().ndims == 1
+                    loss = tf.reduce_mean(loss)
                     gradients = self.optimizer.compute_gradients(loss)
 
         self.__class__.num_Model += 1
@@ -69,7 +82,7 @@ class CTCModel(Seq2SeqModel):
             self.__class__.__name__, name_gpu, self.__class__.num_Model))
 
         if self.is_train:
-            return loss, gradients, [align, tensors_input.label_splits[id_gpu]]
+            return loss, gradients, [align, tensors_input.label_splits[id_gpu], tf.reduce_sum(1-musk)]
         else:
             return logits, len_logits
 
@@ -85,7 +98,7 @@ class CTCModel(Seq2SeqModel):
 
                 indices = get_indices(len_labels)
                 flat_labels = tf.gather_nd(labels, indices)
-                ctc_loss_batch = warpctc_tensorflow.ctc(
+                ctc_loss = warpctc_tensorflow.ctc(
                     activations=tf.transpose(logits, [1, 0, 2]),
                     flat_labels=flat_labels,
                     label_lengths=len_labels,
@@ -96,19 +109,13 @@ class CTCModel(Seq2SeqModel):
                 labels_sparse = dense_sequence_to_sparse(
                     labels,
                     len_labels)
-                ctc_loss_batch = tf.nn.ctc_loss(
+                ctc_loss = tf.nn.ctc_loss(
                     labels_sparse,
                     logits,
                     sequence_length=len_logits,
                     ctc_merge_repeated=self.ctc_merge_repeated,
                     ignore_longer_outputs_than_inputs=True,
                     time_major=False)
-            loss = tf.reduce_mean(ctc_loss_batch) # utter-level ctc loss
-
-        if self.args.model.confidence_penalty:
-            ls_loss = self.args.model.confidence_penalty * confidence_penalty(logits, len_logits)
-            ls_loss = tf.reduce_mean(ls_loss)
-            loss += ls_loss
 
         if self.args.model.policy_learning:
             from tfModels.regularization import policy_learning
@@ -117,10 +124,9 @@ class CTCModel(Seq2SeqModel):
             dim_output = self.dim_output
             decoded_sparse = self.ctc_decode(logits, len_logits)
             rl_loss = policy_learning(logits, len_logits, decoded_sparse, labels, len_labels, softmax_temperature, dim_output, self.args)
-            loss += self.args.model.policy_learning * rl_loss
+            ctc_loss += self.args.model.policy_learning * rl_loss
 
-        return loss
-
+        return ctc_loss
 
     def build_infer_graph(self):
         # cerate input tensors in the cpu
