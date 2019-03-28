@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format='%(levelname)
 class CTCModel(Seq2SeqModel):
     def __init__(self, tensor_global_step, encoder, decoder, is_train, args,
                  batch=None, embed_table_encoder=None, embed_table_decoder=None,
-                 name='tf_CTC_Model'):
+                 name='CTC_Model'):
         self.sample_prob = tf.convert_to_tensor(0.0)
         self.ctc_merge_repeated = args.model.decoder.ctc_merge_repeated
         super().__init__(tensor_global_step, encoder, decoder, is_train, args,

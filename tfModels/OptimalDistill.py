@@ -273,7 +273,7 @@ def optimal_completion_targets_tf(hyp, ref):
     return mask_min
 
 
-def OCD_loss(hyp, ref, vocab_size):
+def OCD(hyp, ref, vocab_size):
     """
     make sure the padding id is 0!
     ref: * * * * <eos> <pad> <pad>
@@ -484,7 +484,7 @@ def test_OCD_loss():
     hpy = tf.placeholder(tf.int32)
     ref = tf.placeholder(tf.int32)
 
-    optimal_distribution_T, optimal_targets_T = OCD_loss(hpy, ref, vocab_size=len(list_vocab))
+    optimal_distribution_T, optimal_targets_T = OCD(hpy, ref, vocab_size=len(list_vocab))
     print('graph has built...')
 
     # run graph

@@ -47,5 +47,15 @@ def testSum_log():
         assert np.allclose(results, ground_truth)
 
 
+def Vander_Monde_matrix():
+    '''
+    [0, 0, 0, ...]
+    [t, t, t, ...]
+    [t^2, t^2, t^2, ...]
+    ...
+    '''
+    return
+
+
 if __name__ == '__main__':
     testSum_log()
