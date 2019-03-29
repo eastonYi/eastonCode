@@ -106,7 +106,7 @@ def optimal_completion_targets(hyp, ref):
     mask_min = np.equal(d, np.stack([m]*d.shape[-1], -1)).astype(np.int32)
     del d
 
-    return mask_min
+    return mask_min, m
 
 def optimal_completion_targets_with_blank(hyp, ref, blank_id):
     '''
@@ -232,7 +232,6 @@ def optimal_completion_targets_tf(hyp, ref):
     d_init = tf.tile(tf.range(len_ref)[None, None, :], [batch_size, 1, 1])
 
     def sent(i, d):
-
         def step(j, i, d_prev, d_cur):
             d0 = d_prev[:, j-1]
             d2 = d_prev[:, j]
@@ -272,6 +271,17 @@ def optimal_completion_targets_tf(hyp, ref):
 
     return mask_min
 
+
+def Qvalue(hyp, ref):
+    '''
+    [[0, 1, 1, 0, 1, 0, 0, 0],
+     [0, 0, 0, 0, 0, 0, 1, 1]]
+    '''
+    d = tf.py_func(editDistance_batch, [hyp, ref], tf.uint8)
+    q = tf.to_int32(tf.reduce_min(d, -1))
+    # q = q[:, 1:] - q[:, :-1]
+
+    return q
 
 def OCD(hyp, ref, vocab_size):
     """
@@ -342,40 +352,73 @@ def OCD_with_blank_loss(hyp, ref, vocab_size):
 
 def test_ED_tf():
     list_vocab = list('_SATRYUNDP')
-    value_hyp = np.array([list_vocab.index(s) for s in 'SATRAPY'], dtype=np.uint8)
-    value_ref = np.array([list_vocab.index(s) for s in 'SUNDAY_'], dtype=np.uint8)
+    value_hyp = np.array([list_vocab.index(s) for s in 'SATURDAY'], dtype=np.uint8)
+    value_ref = np.array([list_vocab.index(s) for s in 'SUNDAY'], dtype=np.uint8)
 
     # build graph
-    hpy = tf.placeholder(tf.uint8)
+    hyp = tf.placeholder(tf.uint8)
     ref = tf.placeholder(tf.uint8)
-    table_distance = ED_tf(hpy, ref)
+    table_distance = ED_tf(hyp, ref)
 
     # run graph
     with tf.Session() as sess:
-        distance = sess.run(table_distance, {hpy: value_hyp,
+        distance = sess.run(table_distance, {hyp: value_hyp,
                                              ref: value_ref})
         print(distance)
 
-
 def test_ED_batch():
     list_vocab = list('_SATRYUNDP')
-    value_hyp = np.array([list_vocab.index(s) for s in 'SATRAPY'], dtype=np.uint8)
-    value_ref = np.array([list_vocab.index(s) for s in 'SUNDAY_'], dtype=np.uint8)
+    # value_hyp = np.array([list_vocab.index(s) for s in 'SATRAPY'], dtype=np.uint8)
+    # value_ref = np.array([list_vocab.index(s) for s in 'SUNDAY_'], dtype=np.uint8)
+    value_hyp = np.array([[list_vocab.index(s) for s in 'SATURDAY'],
+                          [list_vocab.index(s) for s in 'SUNDAY__']],
+                         dtype=np.int32)
+
+    value_ref = np.array([[list_vocab.index(s) for s in 'SUNDAY'],
+                          [list_vocab.index(s) for s in 'SUNDAY']],
+                         dtype=np.int32)
 
     # print(np.array([value_hyp, value_ref]))
     # print(editDistance_batch(np.array([value_hyp, value_ref]), np.array([value_ref, value_hyp])))
 
     # build graph
-    hpy = tf.placeholder(tf.uint8)
+    hyp = tf.placeholder(tf.uint8)
     ref = tf.placeholder(tf.uint8)
-    table_distance = ED_batch_tf(hpy, ref)
+    table_distance = ED_batch_tf(hyp, ref)
 
     # run graph
     with tf.Session() as sess:
-        distance = sess.run(table_distance, {hpy: np.array([value_hyp, value_ref]),
-                                             ref: np.array([value_ref, value_hyp])})
+        distance = sess.run(table_distance, {hyp: value_hyp,
+                                             ref: value_ref})
         print(distance)
 
+
+def test_Qvalue():
+    """
+    """
+    list_vocab = list('_SATRYUNDP-')
+
+    value_hyp = np.array([[list_vocab.index(s) for s in 'SATURDAY'],
+                          [list_vocab.index(s) for s in 'SUNDAY__']],
+                         dtype=np.int32)
+
+    value_ref = np.array([[list_vocab.index(s) for s in 'SUNDAY'],
+                          [list_vocab.index(s) for s in 'SUNDAY']],
+                         dtype=np.int32)
+
+    # build graph
+    hyp = tf.placeholder(tf.int32)
+    ref = tf.placeholder(tf.int32)
+
+    m = Qvalue(hyp, ref)
+    print('graph has built...')
+
+    # run graph
+    with tf.Session() as sess:
+        feed_dict = {hyp: value_hyp,
+                     ref: value_ref}
+        m_ = sess.run([m], feed_dict)
+        print(m_)
 
 def test_OCD_loss():
     """
@@ -463,33 +506,34 @@ def test_OCD_loss():
     [0 42 239 241 101 464 280 0 0 0 0]
     [0 0 0 0 0 0 0 299 0 0 0]
     """
-    # list_vocab = list('_SATRYUNDP-')
+    list_vocab = list('_SATRYUNDP-')
 
-    # value_hyp = np.array([[list_vocab.index(s) for s in 'SATRAPY-'],
-    #                       [list_vocab.index(s) for s in 'SATRAP-_']],
+    value_hyp = np.array([[list_vocab.index(s) for s in 'SATURDAY'],
+                          [list_vocab.index(s) for s in 'SUNDAY__']],
+                         dtype=np.int32)
+
+    value_ref = np.array([[list_vocab.index(s) for s in 'SUNDAY'],
+                          [list_vocab.index(s) for s in 'SUNDAY']],
+                         dtype=np.int32)
+
+    # list_vocab = list('_abcdefgmnop-')
+    # value_hyp = np.array([[list_vocab.index(s) for s in 'abcdef']],
     #                      dtype=np.int32)
     #
-    # value_ref = np.array([[list_vocab.index(s) for s in 'SUNDAY-'],
-    #                       [list_vocab.index(s) for s in 'SUNDA-_']],
+    # value_ref = np.array([[list_vocab.index(s) for s in 'amncodef']], #
     #                      dtype=np.int32)
-    list_vocab = list('_abcdefgmnop-')
-    value_hyp = np.array([[list_vocab.index(s) for s in 'abcdef']],
-                         dtype=np.int32)
-
-    value_ref = np.array([[list_vocab.index(s) for s in 'amncodef']], #
-                         dtype=np.int32)
     # print(optimal_completion_targets(value_hyp, value_ref))
 
     # build graph
-    hpy = tf.placeholder(tf.int32)
+    hyp = tf.placeholder(tf.int32)
     ref = tf.placeholder(tf.int32)
 
-    optimal_distribution_T, optimal_targets_T = OCD(hpy, ref, vocab_size=len(list_vocab))
+    optimal_distribution_T, optimal_targets_T = OCD(hyp, ref, vocab_size=len(list_vocab))
     print('graph has built...')
 
     # run graph
     with tf.Session() as sess:
-        feed_dict = {hpy: value_hyp,
+        feed_dict = {hyp: value_hyp,
                      ref: value_ref}
         optimal_distribution, optimal_targets = sess.run([optimal_distribution_T, optimal_targets_T], feed_dict)
         print(optimal_targets)
@@ -501,7 +545,6 @@ def test_OCD_loss():
                 targets = optimal_targets[i][t]
                 print(', '.join(list_vocab[token] for token in targets[targets>0]))
             print(optimal_distribution[i])
-
 
 def test_OCD_with_blank_loss():
     """
@@ -617,15 +660,15 @@ def test_OCD_with_blank_loss():
     print(optimal_completion_targets_with_blank_v2(value_hyp, value_ref, len(list_vocab)-1))
 
     # build graph
-    hpy = tf.placeholder(tf.int32)
+    hyp = tf.placeholder(tf.int32)
     ref = tf.placeholder(tf.int32)
 
-    optimal_distribution_T, optimal_targets_T = OCD_with_blank_loss(hpy, ref, vocab_size=len(list_vocab))
+    optimal_distribution_T, optimal_targets_T = OCD_with_blank_loss(hyp, ref, vocab_size=len(list_vocab))
     print('graph has built...')
 
     # run graph
     with tf.Session() as sess:
-        feed_dict = {hpy: value_hyp,
+        feed_dict = {hyp: value_hyp,
                      ref: value_ref}
         optimal_distribution, optimal_targets = sess.run([optimal_distribution_T, optimal_targets_T], feed_dict)
         print('optimal_targets: \n', optimal_targets)
@@ -638,9 +681,38 @@ def test_OCD_with_blank_loss():
                 print(', '.join(list_vocab[token] for token in targets[targets>0]))
             print(optimal_distribution[i].shape)
 
+def test_optimal_completion_targets_tf():
+    """
+    have not pass the test yet!!
+    """
+    list_vocab = list('_SATRYUNDP-')
+
+    value_hyp = np.array([[list_vocab.index(s) for s in 'SATURDAY'],
+                          [list_vocab.index(s) for s in 'SUNDAY__']],
+                         dtype=np.int32)
+
+    value_ref = np.array([[list_vocab.index(s) for s in 'SUNDAY'],
+                          [list_vocab.index(s) for s in 'SUNDAY']],
+                         dtype=np.int32)
+
+    # build graph
+    hyp = tf.placeholder(tf.int32)
+    ref = tf.placeholder(tf.int32)
+
+    _, Q_value = optimal_completion_targets_tf(hyp, ref)
+    print('graph has built...')
+
+    # run graph
+    with tf.Session() as sess:
+        feed_dict = {hyp: value_hyp,
+                     ref: value_ref}
+        Q = sess.run([Q_value], feed_dict)
+        print(Q)
 
 if __name__ == '__main__':
     # test_ED_tf()
     # test_ED_batch()
-    test_OCD_loss()
+    # test_OCD_loss()
+    test_Qvalue()
     # test_OCD_with_blank_loss()
+    # test_optimal_completion_targets_tf()

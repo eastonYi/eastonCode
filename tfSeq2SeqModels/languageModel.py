@@ -84,22 +84,14 @@ class LanguageModel(Seq2SeqModel):
             if self.type == 'LSTM':
                 from tfSeq2SeqModels.decoders.lm_decoder import LM_Decoder
                 self.decoder = LM_Decoder(self.args, self.is_train)
-                hidden_output, _ = self.decoder(inputs, len_inputs)
+                logits = self.decoder(inputs, len_inputs)
             elif self.type == 'SelfAttention':
                 from tfSeq2SeqModels.decoders.self_attention_lm_decoder import SelfAttentionDecoder
                 self.decoder= SelfAttentionDecoder(self.args, self.is_train, self.embed_table_decoder)
                 # from tfSeq2SeqModels.decoders.self_attention_lm_decoder_lh import SelfAttentionDecoder_lh
                 # decoder = SelfAttentionDecoder_lh(self.args, self.is_train, self.embed_table_decoder)
-                hidden_output = self.decoder(inputs, len_inputs)
-            # self.cell = self.make_multi_cell(self.num_layers)
-            #
-            # hidden_output, _ = tf.nn.dynamic_rnn(
-            #     cell=self.cell,
-            #     inputs=inputs,
-            #     sequence_length=tensors_input.len_fea_splits[id_gpu],
-            #     dtype=tf.float32)
+                logits = self.decoder(inputs, len_inputs)
 
-            logits = hidden_output
             len_logits = tensors_input.len_label_splits[id_gpu]
 
             loss = tf.nn.sparse_softmax_cross_entropy_with_logits(

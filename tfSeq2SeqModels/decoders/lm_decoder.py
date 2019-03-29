@@ -3,6 +3,10 @@ contains the EDDecoder class'''
 import tensorflow as tf
 from tensorflow.python.util import nest
 
+from tfModels.layers import make_multi_cell
+from tfSeq2SeqModels.tools.utils import dense
+
+
 class LM_Decoder(object):
     '''a general decoder for an encoder decoder system
     converts the high level features into output logits
@@ -34,7 +38,12 @@ class LM_Decoder(object):
         self.dim_output = args.dim_output
         self.embed_table = embed_table
 
-        self.cell = self.make_multi_cell(args.num_layers)
+        self.cell = make_multi_cell(
+            num_cell_units=self.num_cell_units,
+            is_train=self.is_train,
+            keep_prob=1-self.dropout,
+            rnn_mode='BLOCK',
+            num_layers=self.num_layers)
 
     def __call__(self, inputs, len_inputs):
         '''
@@ -60,36 +69,16 @@ class LM_Decoder(object):
                 sequence_length=len_inputs,
                 dtype=tf.float32)
 
-        return hidden_output, final_state
+            self.fully_connected = tf.get_variable(
+                'fully_connected',
+                shape=[self.num_cell_units, self.dim_output])
+            logits = dense(
+                inputs=hidden_output,
+                units=self.dim_output,
+                kernel=tf.transpose(self.fully_connected),
+                use_bias=False)
 
-    def _get_lstm_cell(self):
-        if self.rnn_mode == 'BASIC':
-            return tf.contrib.rnn.BasicLSTMCell(
-                self.num_cell_units, forget_bias=0.0, state_is_tuple=True,
-                reuse=not self.is_train)
-        if self.rnn_mode == 'BLOCK':
-            return tf.contrib.rnn.LSTMBlockCell(
-                self.num_cell_units, forget_bias=0.0)
-        if self.rnn_mode == 'CUDNN':
-            return tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(self.num_cell_units)
-        raise ValueError("rnn_mode %s not supported" % self.rnn_mode)
-
-    def make_cell(self):
-        cell = self._get_lstm_cell()
-        if self.is_train and self.keep_prob < 1:
-            cell = tf.contrib.rnn.DropoutWrapper(
-                cell, output_keep_prob=self.keep_prob)
-        return cell
-
-    def make_multi_cell(self, num_layers):
-        list_cells = [self.make_cell() for _ in range(self.num_layers-1)]
-        cell_proj = tf.contrib.rnn.OutputProjectionWrapper(
-            cell=self.make_cell(),
-            output_size=self.dim_output)
-        list_cells.append(cell_proj)
-        multi_cell = tf.contrib.rnn.MultiRNNCell(list_cells, state_is_tuple=True)
-
-        return multi_cell
+        return logits
 
     def embedding(self, ids):
         if self.embed_table:
@@ -105,13 +94,20 @@ class LM_Decoder(object):
     def forward(self, input, state, stop_gradient=False, list_state=False):
         if input.get_shape().ndims <2:
             input = tf.nn.embedding_lookup(self.embed_table, input)
-        output, state = tf.contrib.legacy_seq2seq.rnn_decoder(
+        hidden_output, state = tf.contrib.legacy_seq2seq.rnn_decoder(
             decoder_inputs=[input],
             initial_state=state,
             cell=self.cell)
+        cur_logit = dense(
+            inputs=hidden_output[0],
+            units=self.dim_output,
+            kernel=tf.transpose(self.fully_connected),
+            use_bias=False)
+
+        pred = tf.to_int32(tf.argmax(cur_logit, -1))
 
         if stop_gradient:
-            output = tf.stop_gradient(output)
+            cur_logit = tf.stop_gradient(cur_logit)
 
         if list_state:
             list_cells = []
@@ -120,7 +116,7 @@ class LM_Decoder(object):
                 list_cells.append(cell)
             state = tuple(list_cells)
 
-        return output[0], state
+        return cur_logit, pred, state
 
     def sample(self, token_init=None, state_init=None, max_length=50):
         def step(i, preds, state_decoder):

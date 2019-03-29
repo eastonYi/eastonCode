@@ -47,14 +47,17 @@ def testSum_log():
         assert np.allclose(results, ground_truth)
 
 
-def Vander_Monde_matrix():
+def Vander_Monde_matrix(rate, batch_size):
     '''
-    [0, 0, 0, ...]
+    [[0, 0, 0, ...]
     [t, t, t, ...]
-    [t^2, t^2, t^2, ...]
+    [t^2, t^2, t^2, ...]]^T
     ...
     '''
-    return
+    coefficients = tf.constant([[rate ** t for t in range(100)]])
+    matrix = tf.tile(coefficients, [batch_size, 1])
+
+    return matrix
 
 
 if __name__ == '__main__':
