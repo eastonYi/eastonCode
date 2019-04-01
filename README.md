@@ -10,7 +10,7 @@
 
     Another thing this script will do is summarize the dataset and gives a proper bucket setting. This will iter your dataset. The bucket setting is related to your raw feature length and the frame skipping strategy (setting in your `.yaml`). So you need to reset you bucket boundary if you change them.
 
-2. Configure you `.yaml` file
+2. Configure your `.yaml` file
 3. Train the model
     ```python
     python ../../main.py -c configs/demo.yaml
