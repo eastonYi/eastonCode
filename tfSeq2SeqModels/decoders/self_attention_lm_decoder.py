@@ -220,36 +220,3 @@ class SelfAttentionDecoder(LM_Decoder):
             cache = tf.stop_gradient(cache)
 
         return logit, cache
-
-    @staticmethod
-    def tensor2indices(batch_sents):
-        """
-        batch_sents = tf.constant([[2,3,3,1,4],
-                                   [4,3,5,1,0]], dtype=tf.int32)
-        sess.run(tensor2indices(batch_sents))
-        >>>
-        array([[[0, 0, 2],
-                [0, 1, 3],
-                [0, 2, 3],
-                [0, 3, 1],
-                [0, 4, 4]],
-
-               [[1, 0, 4],
-                [1, 1, 3],
-                [1, 2, 5],
-                [1, 3, 1],
-                [1, 4, 0]]], dtype=int32)
-        """
-        size_batch = tf.shape(batch_sents)[0]
-        len_batch = tf.shape(batch_sents)[1]
-        batch_i = tf.range(size_batch)
-        len_i = tf.range(len_batch)
-
-        # [0,0,0,1,1,1,2,2,2,...]
-        batch_i = tf.tile(batch_i[:, None], [1, len_batch])
-        # [0,1,2,0,1,2,0,1,2,...]
-        len_i = tf.tile(len_i[None, :], [size_batch, 1])
-
-        indices = tf.stack([batch_i, len_i, batch_sents], -1)
-
-        return indices

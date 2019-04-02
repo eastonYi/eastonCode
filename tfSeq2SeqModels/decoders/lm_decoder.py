@@ -118,6 +118,42 @@ class LM_Decoder(object):
 
         return cur_logit, pred, state
 
+    def score(self, decoder_input, len_seqs):
+        '''
+        decoder_input : <sos> + sent + <eos>
+        score batch sentences
+        utilize the `decoder_impl`
+        return batch_score(log scale)
+        note: the pad score should be removed after the tf.log! otherwise the pad is 0 and
+        tf.log(0.0) would pull down the sentence score!
+        the `len_seqs` not counts the <sos> !!!
+        '''
+
+        decoder_input = tf.to_int32(decoder_input)
+        # input is `<sos> + sent`
+        decoder_input_embed = tf.nn.embedding_lookup(self.embed_table, decoder_input[:, :-1])
+        hidden_output, final_state = tf.nn.dynamic_rnn(
+            cell=self.cell,
+            inputs=decoder_input_embed,
+            sequence_length=len_seqs,
+            dtype=tf.float32)
+        # reuse the `fully_connected`
+        logits = dense(
+            inputs=hidden_output,
+            units=self.dim_output,
+            kernel=tf.transpose(self.fully_connected),
+            use_bias=False)
+        distribution = tf.nn.softmax(logits, -1)
+        # output is `sent + <eos>`
+        scores = tf.gather_nd(distribution, self.tensor2indices(decoder_input[:, 1:]))
+
+        scores_log = tf.log(scores)
+        mask = tf.sequence_mask(len_seqs, maxlen=tf.reduce_max(len_seqs), dtype=scores.dtype)
+        scores_log = scores_log * mask
+        scores_log = tf.reduce_sum(scores_log, -1)
+
+        return scores_log, distribution
+
     def sample(self, token_init=None, state_init=None, max_length=50):
         def step(i, preds, state_decoder):
             output, state_output = self.forward(preds[:, -1], state_decoder)
@@ -143,3 +179,36 @@ class LM_Decoder(object):
                               ]
             )
         return sampled, num_samples
+
+    @staticmethod
+    def tensor2indices(batch_sents):
+        """
+        batch_sents = tf.constant([[2,3,3,1,4],
+                                   [4,3,5,1,0]], dtype=tf.int32)
+        sess.run(tensor2indices(batch_sents))
+        >>>
+        array([[[0, 0, 2],
+                [0, 1, 3],
+                [0, 2, 3],
+                [0, 3, 1],
+                [0, 4, 4]],
+
+               [[1, 0, 4],
+                [1, 1, 3],
+                [1, 2, 5],
+                [1, 3, 1],
+                [1, 4, 0]]], dtype=int32)
+        """
+        size_batch = tf.shape(batch_sents)[0]
+        len_batch = tf.shape(batch_sents)[1]
+        batch_i = tf.range(size_batch)
+        len_i = tf.range(len_batch)
+
+        # [0,0,0,1,1,1,2,2,2,...]
+        batch_i = tf.tile(batch_i[:, None], [1, len_batch])
+        # [0,1,2,0,1,2,0,1,2,...]
+        len_i = tf.tile(len_i[None, :], [size_batch, 1])
+
+        indices = tf.stack([batch_i, len_i, batch_sents], -1)
+
+        return indices

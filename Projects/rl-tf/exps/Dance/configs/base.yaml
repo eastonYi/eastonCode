@@ -1,0 +1,67 @@
+dirs:
+    train:
+        data: /mnt/lustre/xushuang/easton/data/hkust/word/train/feats.train_3x.scp
+        label: /mnt/lustre/xushuang/easton/data/hkust/word/train/word.train_3x.scp
+    dev:
+        data: /mnt/lustre/xushuang/easton/data/hkust/word/train_dev/feats.train_dev.scp
+        label: /mnt/lustre/xushuang/easton/data/hkust/word/train_dev/word.train_dev.scp
+    test:
+        data: /mnt/lustre/xushuang/easton/data/hkust/word/dev/feats.dev.scp
+        label: /mnt/lustre/xushuang/easton/data/hkust/word/dev/word.dev.scp
+    type: scp
+    models: models
+    vocab: /mnt/lustre/xushuang/easton/data/hkust/word_eos/vocab_3673+2.txt
+    log: log
+    checkpoint: checkpoint
+    # checkpoint_init: /mnt/lustre/xushuang/easton/projects/asr-tf/exp/hkust/models/transformer.yaml/checkpoint
+
+data:
+    dim_raw_input: 80
+    num_context: 0
+    downsample: 1
+    add_delta: True
+    input_noise: 0
+    unit: word
+    train:
+        size_dataset:
+    dev:
+        size_dataset:
+
+model:
+    processor:
+        type: conv
+        num_cell_units: 1600
+        num_filters: 64
+    agent:
+        type: lstm
+        size_embedding: 512
+        num_blocks: 6
+        num_heads: 8
+        num_cell_units: 512
+        attention_dropout_rate: 0.1
+        residual_dropout_rate: 0.1
+        init_scale: 0.04
+        label_smoothing_confidence: 1.0
+    env:
+        type: LM
+    structure: transformer
+
+dev_step: 5000
+decode_step: 1000
+save_step: 500
+
+gpus: '0,1,2,3'
+# gpus: '0'
+
+num_epochs: 100000
+num_steps: 500000
+
+bucket_boundaries: 122,159,186,208,228,247,264,279,295,310,325,340,354,368,383,399,415,433,450,469,491,514,541,571,609,656,720,822,1010
+num_batch_tokens: 20000
+
+# learning rate
+optimizer: adam
+learning_rate: 0.02
+beam_size: 1
+# beam_size: 10
+num_threads: 8

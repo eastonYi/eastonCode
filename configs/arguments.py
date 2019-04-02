@@ -58,8 +58,3 @@ elif '<blk>' in args.token2idx.keys():
     args.sos_idx = args.token2idx['<blk>']
 else:
     args.sos_idx = None
-
-# learning rate
-# Linear Scaling Rule
-if args.peak:
-    args.peak *= args.num_gpus

@@ -3,17 +3,16 @@ import numpy as np
 
 from tfModels.layers import residual, conv_lstm
 from tfModels.tensor2tensor.common_layers import layer_norm
-from processor import Processor
+from .processor import Processor
 
 
 class CONV_Processor(Processor):
-    def __init__(self, args, name):
+    def __init__(self, is_train, args, name='conv_processor'):
         self.num_cell_units = args.model.processor.num_cell_units
         self.num_filters = args.model.processor.num_filters
         self.num_layers = args.model.processor.num_layers
         self.size_feat = args.data.dim_input
-        name = name if name else 'conv_processor'
-        super().__init__(args, name)
+        super().__init__(is_train, args, name)
 
     def process(self, inputs, len_inputs):
         size_batch  = tf.shape(inputs)[0]

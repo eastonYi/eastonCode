@@ -83,7 +83,7 @@ class LanguageModel(Seq2SeqModel):
 
             if self.type == 'LSTM':
                 from tfSeq2SeqModels.decoders.lm_decoder import LM_Decoder
-                self.decoder = LM_Decoder(self.args, self.is_train)
+                self.decoder = LM_Decoder(self.args, self.is_train, self.embed_table_decoder)
                 logits = self.decoder(inputs, len_inputs)
             elif self.type == 'SelfAttention':
                 from tfSeq2SeqModels.decoders.self_attention_lm_decoder import SelfAttentionDecoder
@@ -190,7 +190,10 @@ class LanguageModel(Seq2SeqModel):
         with tf.variable_scope(self.decoder.scope, reuse=True):
             return self.decoder.score(decoder_input, len_seqs)
 
-    def forward(self, preds, cache, stop_gradient=False):
+    def forward(self, input, state, stop_gradient, list_state):
         with tf.variable_scope(self.decoder.scope, reuse=True):
 
-            return self.decoder.forward(preds, cache, stop_gradient=False)
+            return self.decoder.forward(input, state, stop_gradient, list_state)
+
+    def zero_state(self, batch_size, dtype=tf.float32):
+        return self.decoder.zero_state(batch_size, dtype=tf.float32)
