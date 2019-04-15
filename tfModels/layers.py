@@ -158,7 +158,7 @@ def make_cell(num_cell_units, is_train, rnn_mode, keep_prob):
     return cell
 
 
-def make_multi_cell(num_cell_units, is_train, rnn_mode, keep_prob, num_layers):
+def make_multi_cell(num_cell_units, is_train, keep_prob, num_layers, rnn_mode='BLOCK'):
     list_cells = [make_cell(num_cell_units, is_train, rnn_mode, keep_prob) for _ in range(num_layers)]
     # cell_proj = tf.contrib.rnn.OutputProjectionWrapper(
     #     cell=make_cell(num_cell_units, is_train, rnn_mode, keep_prob),

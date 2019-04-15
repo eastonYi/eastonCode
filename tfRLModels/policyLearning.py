@@ -7,7 +7,7 @@ import tensorflow as tf
 from tensorflow.python.util import nest
 
 from tfModels.tools import choose_device, smoothing_cross_entropy
-from .RLModel import RLModel
+from .ReinforcementLearning import RL
 from .agents.lstm_agent import LSTM_Agent as Agent
 from .envs.lm_env import LM_ENV as ENV
 from .processors.conv import CONV_Processor as Processor
@@ -16,7 +16,7 @@ from tfModels.OptimalDistill import Qvalue
 logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format='%(levelname)s(%(filename)s:%(lineno)d): %(message)s')
 
 
-class PolicyModel(RLModel):
+class PolicyLearning(RL):
     def __init__(self, tensor_global_step, is_train, args, batch=None, name='policy_model'):
         self.processor = Processor(is_train, args)
         self.agent = Agent(is_train, args)
@@ -38,6 +38,7 @@ class PolicyModel(RLModel):
             frames, len_frames = self.processor.process(
                 inputs=tensors_input.feature_splits[id_gpu],
                 len_inputs=tensors_input.len_fea_splits[id_gpu])
+            # frames = tf.stop_gradient(frames)
 
             def step(i, state_agent, state_lm, rewards_lm, actions, logits):
                 # generate env state
@@ -52,7 +53,7 @@ class PolicyModel(RLModel):
 
                 # env transfers staten and bills rewards
                 next_state_lm, reward_lm, info = self.env.step(action, state_lm)
-                rewards_lm = tf.concat([rewards_lm, reward_lm], 1)
+                rewards_lm = tf.concat([rewards_lm, reward_lm[:, None]], 1)
                 actions = tf.concat([actions, action[:, None]], 1)
 
                 return i+1, next_state_agent, next_state_lm, rewards_lm, actions, logits
@@ -69,19 +70,27 @@ class PolicyModel(RLModel):
                                   tf.TensorShape([None, None, self.args.dim_output])]
                 )
 
+            pad_musk = tf.sequence_mask(len_frames, maxlen=tf.shape(frames)[1], dtype=tf.float32)
+            rewards_lm *= pad_musk
+
             if self.is_train:
                 q_value = Qvalue(actions, tensors_input.label_splits[id_gpu])
                 # rewards_ac: the temporal-difference Q value of each step
-                rewards_ac = q_value[:, 1:] - q_value[:, :-1]
-                rewards = tf.to_float(rewards_ac) + rewards_lm
+                rewards_ac = tf.to_float(q_value[:, 1:] - q_value[:, :-1])
+                rewards_lm = tf.zeros_like(rewards_ac)
+                rewards_ac *= pad_musk
+                rewards = rewards_ac + rewards_lm
+                # rewards = tf.Print(rewards, [tf.reduce_sum(rewards_lm, -1)], message='rewards_lm', summarize=1000)
                 rewards_discounted = self.discount(self.discount_rate, rewards)
+                rewards_discounted = tf.stop_gradient(rewards_discounted)
 
                 crossent = smoothing_cross_entropy(
                     logits=logits,
                     labels=actions,
                     vocab_size=self.args.dim_output,
                     confidence=1.0)
-                loss = crossent * rewards_discounted
+                # crossent = tf.Print(crossent, [tf.reduce_sum(crossent)], message='crossent: ', summarize=1000)
+                loss = crossent * rewards_discounted * pad_musk
 
                 loss = tf.reduce_mean(loss)
                 gradients = self.optimizer.compute_gradients(loss)
@@ -91,7 +100,8 @@ class PolicyModel(RLModel):
                 self.__class__.__name__, name_gpu, self.__class__.num_Model))
 
             if self.is_train:
-                return loss, gradients, [rewards_ac, rewards_lm]
+                return loss, gradients, \
+                [tf.reduce_sum(rewards_ac, -1), tf.reduce_sum(rewards_lm, -1), actions]
             else:
                 return actions, rewards_lm
 
@@ -104,4 +114,4 @@ class PolicyModel(RLModel):
                 name_gpu=self.list_gpu_devices[0],
                 tensors_input=tensors_input)
 
-        return actions, rewards_lm, tensors_input.shape_batch
+        return actions, tensors_input.shape_batch, rewards_lm

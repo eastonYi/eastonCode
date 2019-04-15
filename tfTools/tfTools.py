@@ -418,7 +418,53 @@ def get_indices(len_seq):
 
     return indices
 
+def state2tensor(state):
+    """
+    for lstm cell
 
-# def remove_pad(input_tensor, pad):
-#
-#     return output_tensor, mask
+    demo:
+        cell = make_multi_cell(
+            num_cell_units=10,
+            num_layers=2,
+            is_train=True,
+            keep_prob=0.9)
+        x = cell.zero_state(3, tf.float32)
+        state2tensor(x):
+        <tf.Tensor 'stack_10:0' shape=(3, 4, 10) dtype=float32>
+    """
+    import itertools
+    list_tensors = list(itertools.chain.from_iterable(state))
+    tensor = tf.stack(list_tensors, 1)
+
+    return tensor
+
+def tensor2state(tensor):
+    """
+    tensor: [batch, 2*num_layer, hidden_size]
+
+    demo:
+        cell = make_multi_cell(
+            num_cell_units=10,
+            num_layers=2,
+            is_train=True,
+            keep_prob=0.9)
+        cell.zero_state(3, tf.float32):
+        (LSTMStateTuple(c=<zeros:0' shape=(3, 10)>,
+                        h=<zeros_1:0' shape=(3, 10))>,
+         LSTMStateTuple(c=<zeros:0' shape=(3, 10)>,
+                        h=<zeros_1:0' shape=(3, 10))>)
+
+        m = tf.placeholder(tf.float32, [None, 2*2, 10])
+        tensor2state(m):
+        (LSTMStateTuple(c=<shape=(?, 10)>,
+                        h=<shape=(?, 10)>),
+         LSTMStateTuple(c=<shape=(?, 10)>,
+                        h=<shape=(?, 10)>))
+    """
+    from tensorflow.contrib.rnn import LSTMStateTuple
+    cells = []
+    list_tensors = tf.unstack(tensor, axis=1)
+    for i in range(int(len(list_tensors)/2)):
+        cells.append(LSTMStateTuple(list_tensors[2*i], list_tensors[2*i+1]))
+
+    return tuple(cells)

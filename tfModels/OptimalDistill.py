@@ -278,7 +278,7 @@ def Qvalue(hyp, ref):
      [0, 0, 0, 0, 0, 0, 1, 1]]
     '''
     d = tf.py_func(editDistance_batch, [hyp, ref], tf.uint8)
-    q = tf.to_int32(tf.reduce_min(d, -1))
+    q = -tf.to_int32(tf.reduce_min(d, -1))
     # q = q[:, 1:] - q[:, :-1]
 
     return q

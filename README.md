@@ -6,6 +6,7 @@
     ```python
     python ../../dataset.py -c configs/demo.yaml
     ```
+    A demo yaml file can be found in `eastonCode/Projects/asr-tf/exps/aishell2/configs`.
     Supporting `.ark` file which is the standard type in Kaldi.
 
     Another thing this script will do is summarize the dataset and gives a proper bucket setting. This will iter your dataset. The bucket setting is related to your raw feature length and the frame skipping strategy (setting in your `.yaml`). So you need to reset you bucket boundary if you change them.

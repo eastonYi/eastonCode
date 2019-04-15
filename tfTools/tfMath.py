@@ -54,7 +54,7 @@ def Vander_Monde_matrix(rate, batch_size):
     [t^2, t^2, t^2, ...]]^T
     ...
     '''
-    coefficients = tf.constant([[rate ** t for t in range(100)]])
+    coefficients = tf.constant([[rate ** t for t in range(500)]])
     matrix = tf.tile(coefficients, [batch_size, 1])
 
     return matrix

@@ -116,7 +116,9 @@ class LM_Decoder(object):
                 list_cells.append(cell)
             state = tuple(list_cells)
 
-        return cur_logit, pred, state
+        prob = tf.nn.softmax(cur_logit)
+
+        return prob, pred, state
 
     def score(self, decoder_input, len_seqs):
         '''

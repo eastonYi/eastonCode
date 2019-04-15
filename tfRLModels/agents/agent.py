@@ -5,9 +5,6 @@ import tensorflow as tf
 import numpy as np
 from abc import ABCMeta, abstractmethod
 
-from tfModels.layers import residual, conv_lstm
-from tfModels.tensor2tensor.common_layers import layer_norm
-
 class Agent(object):
     __metaclass__ = ABCMeta
 
@@ -23,3 +20,11 @@ class Agent(object):
     def forward(self):
         """
         """
+
+    @staticmethod
+    def exploration(logit):
+        return tf.distributions.Categorical(logits=tf.ones_like(logit)).sample()
+
+    @staticmethod
+    def exploitation(logits=None, prob=None):
+        return tf.distributions.Categorical(logits=logits, prob=prob).sample()

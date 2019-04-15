@@ -25,11 +25,14 @@ class LM_ENV(Environment):
             stop_gradient=True,
             list_state=True)
         lm_state_move = lm_state
-        reward_move = prob
+        size_batch = tf.shape(stay_musk)[0]
+        indices_batch = tf.range(size_batch)
+        # checked
+        reward_move = tf.gather_nd(prob, tf.stack([indices_batch, action], -1))
 
         # stay
         lm_state_stay = lm_state_prev
-        reward_stay = tf.zeros_like(prob)
+        reward_stay = tf.zeros_like(reward_move)
 
         # merge
 
@@ -38,7 +41,8 @@ class LM_ENV(Environment):
                             self.state2list_tensors(lm_state_move))]
         next_state = self.list_tensors2state(states)
         reward = tf.where(stay_musk, reward_stay, reward_move)
-        info = None
+        # reward = tf.Print(reward, [reward], message='reward', summarize=1000)
+        info = [reward_stay, reward_move]
 
         return next_state, reward, info
 

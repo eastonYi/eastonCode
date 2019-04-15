@@ -11,7 +11,7 @@ from tfTools.gradientTools import average_gradients, handle_gradients
 logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format='%(levelname)s(%(filename)s:%(lineno)d): %(message)s')
 
 
-class RLModel(object):
+class RL(object):
     __metaclass__ = ABCMeta
     num_Instances = 0
     num_Model = 0
@@ -36,7 +36,7 @@ class RLModel(object):
         self.list_run = list(self.build_graph() if is_train else self.build_infer_graph())
 
     @staticmethod
-    def discount(discount_rate, rewards):
+    def discount(discount_rate, rewards, norm=True):
         '''
         rewards: [b, t]
 
@@ -46,15 +46,20 @@ class RLModel(object):
             [[3.4390001, 2.71     , 1.9      , 1.       ],
              [3.4390001, 2.71     , 1.9      , 1.       ],
              [3.4390001, 2.71     , 1.9      , 1.       ]]
+
+             norm=False
+          [[ 1.4221745 ,  0.54113334, -0.4378012 , -1.5255061 ],
+           [ 1.4221745 ,  0.54113334, -0.4378012 , -1.5255061 ],
+           [ 1.4221745 ,  0.54113334, -0.4378012 , -1.5255061 ]],
         '''
         batch_size = tf.shape(rewards)[0]
         time_len = tf.shape(rewards)[1]
         discount_rewards_init = tf.zeros([batch_size, 0])
 
         def step(i, discount_rewards):
-            discount_reward = tf.reduce_sum(rewards[:, i:] * \
-                Vander_Monde_matrix(discount_rate, batch_size)[:, :tf.shape(rewards)[0]-i+1], 1)
-            discount_rewards = tf.concat([discount_rewards, discount_reward], 1)
+            coefficient = Vander_Monde_matrix(discount_rate, batch_size)[:, :tf.shape(rewards[:, i:])[1]]
+            discount_reward = tf.reduce_sum(rewards[:, i:] * coefficient, 1)
+            discount_rewards = tf.concat([discount_rewards, discount_reward[:, None]], 1)
 
             return i+1, discount_rewards
 
@@ -65,6 +70,11 @@ class RLModel(object):
             shape_invariants=[tf.TensorShape([]),
                               tf.TensorShape([None, None])]
             )
+
+        if norm:
+            mean, var = tf.nn.moments(discount_rewards, axes=1)
+            discount_rewards -= mean[:, None]
+            discount_rewards /= var[:, None]
 
         return discount_rewards
 

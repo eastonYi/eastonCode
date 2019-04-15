@@ -19,6 +19,7 @@ class CONV_Processor(Processor):
         size_length = tf.shape(inputs)[1]
         size_feat = int(self.size_feat/3)
         x = tf.reshape(inputs, [size_batch, size_length, size_feat, 3])
+        # x = tf.Print(x, [tf.shape(x)], message='x0: ', summarize=1000)
 
         with tf.variable_scope(self.name):
             x = self.normal_conv(
@@ -51,12 +52,11 @@ class CONV_Processor(Processor):
                 name="conv3",
                 w_initializer=None,
                 norm_type='layer')
-            x = conv_lstm(
-                inputs=x,
-                kernel_size=(3,3),
-                filters=self.num_filters)
-
-        size_feat = int(np.ceil(self.size_feat/8)) * self.num_filters
+            # x = conv_lstm(
+            #     inputs=x,
+            #     kernel_size=(3,3),
+            #     filters=self.num_filters)
+        size_feat = self.num_filters * tf.cast(tf.ceil(tf.cast(size_feat,tf.float32)/8), tf.int32)
         size_length = tf.cast(tf.ceil(tf.cast(size_length,tf.float32)/8), tf.int32)
         len_frames = tf.cast(tf.ceil(tf.cast(len_inputs,tf.float32)/8), tf.int32)
         frames = tf.reshape(x, [size_batch, size_length, size_feat])
