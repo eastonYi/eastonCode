@@ -31,14 +31,14 @@ if not args.dir_checkpoint.is_dir():
 
 # bucket
 if args.bucket_boundaries:
-    args.list_bucket_boundaries = [int(int(i))
-        for i in args.bucket_boundaries.split(',')]
+    args.list_bucket_boundaries = [int(i) for i in args.bucket_boundaries.split(',')]
 else:
     args.list_bucket_boundaries = [i
         for i in range(args.size_bucket_start,
                        args.size_bucket_end,
                        args.size_bucket_gap)]
 
+assert args.num_batch_tokens
 args.list_batch_size = ([int(args.num_batch_tokens / boundary) * args.num_gpus
         for boundary in (args.list_bucket_boundaries)] + [args.num_gpus])
 logging.info('\nbucket_boundaries: {} \nbatch_size: {}'.format(

@@ -3,6 +3,7 @@ from tfTools.tfTools import dense_sequence_to_sparse
 import numpy as np
 import time
 
+
 def editDistance(hyp, ref):
     '''
     This function is to calculate the edit distance of reference sentence and the hypothesis sentence.
@@ -36,7 +37,8 @@ def ED_tf(hyp, ref):
 
 def editDistance_batch(hyp, ref):
     '''
-    This function is to calculate the edit distance of reference sentence and the hypothesis sentence.
+    This function is to calculate the edit distance of reference sentence and
+    the hypothesis sentence.
     Main algorithm used is dynamic programming.
     Input:
         hyp: the list of words produced by splitting hypothesis sentence.
@@ -398,12 +400,12 @@ def test_Qvalue():
     """
     list_vocab = list('_SATRYUNDP-')
 
-    value_hyp = np.array([[list_vocab.index(s) for s in 'SATURDAY'],
-                          [list_vocab.index(s) for s in 'SUNDAY__']],
+    value_hyp = np.array([[list_vocab.index(s) for s in 'SATURDAY-'],
+                          [list_vocab.index(s) for s in 'SUNDAY-__']],
                          dtype=np.int32)
 
-    value_ref = np.array([[list_vocab.index(s) for s in 'SUNDAY'],
-                          [list_vocab.index(s) for s in 'SUNDAY']],
+    value_ref = np.array([[list_vocab.index(s) for s in 'SUNDAY-'],
+                          [list_vocab.index(s) for s in 'SUNDAY-']],
                          dtype=np.int32)
 
     # build graph

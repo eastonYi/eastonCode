@@ -52,6 +52,7 @@ model:
         init_scale: 0.04
         label_smoothing_confidence: 1.0
     structure: transformer
+    loss_type: CE
     prob_start: 0.1
     prob_end: 3.0
     start_warmup_steps: 8000
@@ -88,7 +89,7 @@ beam_size: 1
 num_threads: 8
 
 length_penalty_weight: 0.0
-lamda_l2: 0.0
+lambda_l2: 0.0
 lambda_lm: 0.0
 lambda_rerank: 0.0
 

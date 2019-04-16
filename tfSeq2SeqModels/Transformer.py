@@ -51,7 +51,7 @@ class Transformer(Seq2SeqModel):
                 global_step=self.global_step,
                 args=self.args)
 
-            _, (len_encoded, encoded) = encoder(
+            encoded, len_encoded = encoder(
                 features=tensors_input.feature_splits[id_gpu],
                 len_feas=tensors_input.len_fea_splits[id_gpu])
 
@@ -59,7 +59,7 @@ class Transformer(Seq2SeqModel):
                 decoder_input = decoder.build_input(
                     id_gpu=id_gpu,
                     tensors_input=tensors_input)
-                
+
                 if (not self.is_train) or (self.args.model.loss_type == 'OCD'):
                     # infer phrases
                     if self.args.dirs.lm_checkpoint and self.args.beam_size>1:
