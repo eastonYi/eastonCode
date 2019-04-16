@@ -1,33 +1,29 @@
 dirs:
     train:
-        # data: /mnt/lustre/xushuang/easton/data/hkust/word/train_dev/feats.train_dev.scp
-        # label: /mnt/lustre/xushuang/easton/data/hkust/word/train_dev/word.train_dev.scp
-        # tfdata: /mnt/lustre/xushuang/easton/data/hkust/word_eos/train_dev
-        data: /mnt/lustre/xushuang/easton/data/hkust/word/train/feats.train_3x.scp
-        label: /mnt/lustre/xushuang/easton/data/hkust/word/train/word.train_3x.scp
-        tfdata: /mnt/lustre/xushuang/easton/data/hkust/word_eos/train
+        data: /mnt/lustre/xushuang/easton/data/libriSpeech/subword_data/data_word_piece/train/feats.scp
+        label: /mnt/lustre/xushuang/easton/data/libriSpeech/subword_data/data_word_piece/train/text
+        tfdata: /mnt/lustre/xushuang/easton/data/libriSpeech/subword_data/data_word_piece/train/tfdata_eos
     dev:
-        data: /mnt/lustre/xushuang/easton/data/hkust/word/train_dev/feats.train_dev.scp
-        label: /mnt/lustre/xushuang/easton/data/hkust/word/train_dev/word.train_dev.scp
-        tfdata: /mnt/lustre/xushuang/easton/data/hkust/word_eos/train_dev
+        data: /mnt/lustre/xushuang/easton/data/libriSpeech/subword_data/data_word_piece/dev-clean/feats.scp
+        label: /mnt/lustre/xushuang/easton/data/libriSpeech/subword_data/data_word_piece/dev-clean/text
+        tfdata: /mnt/lustre/xushuang/easton/data/libriSpeech/subword_data/data_word_piece/dev-clean/tfdata_eos
     test:
-        data: /mnt/lustre/xushuang/easton/data/hkust/word/dev/feats.dev.scp
-        label: /mnt/lustre/xushuang/easton/data/hkust/word/dev/word.dev.scp
-        tfdata: /mnt/lustre/xushuang/easton/data/hkust/word_eos/dev
+        data: /mnt/lustre/xushuang/easton/data/libriSpeech/subword_data/data_word_piece/test-clean/feats.scp
+        label: /mnt/lustre/xushuang/easton/data/libriSpeech/subword_data/data_word_piece/test-clean/text
+        tfdata: /mnt/lustre/xushuang/easton/data/libriSpeech/subword_data/data_word_piece/test-clean/tfdata_eos
     type: scp
     models: models
-    vocab: /mnt/lustre/xushuang/easton/data/hkust/word_eos/vocab_3673+2.txt
+    vocab: /mnt/lustre/xushuang/easton/projects/asr-tf/exp/librispeech/vocab_3726.txt
     log: log
     checkpoint: checkpoint
-    # checkpoint_init: /mnt/lustre/xushuang/easton/projects/asr-tf/exp/hkust/models/transformer.yaml/checkpoint
+    checkpoint_init: /mnt/lustre/xushuang/easton/projects/asr-tf/exp/librispeech/models/subwords_transformer.yaml//checkpoint/
 
 data:
-    dim_raw_input: 80
+    dim_feature: 120
     num_context: 5
     downsample: 3
     add_delta: False
-    input_noise: 0
-    unit: word
+    unit: subword
     train:
         size_dataset:
     dev:
@@ -36,11 +32,11 @@ data:
 model:
     encoder:
         type: transformer_encoder
-        # type: conv_lstm
-        # num_cell_units: 1600
-        # num_filters: 64
-        # use_residual: False
-        dropout: 0.0
+        num_blocks: 6
+        num_heads: 8
+        num_cell_units: 512
+        attention_dropout_rate: 0.1
+        residual_dropout_rate: 0.1
     decoder:
         type: transformer_decoder
         size_embedding: 512
@@ -50,27 +46,26 @@ model:
         attention_dropout_rate: 0.1
         residual_dropout_rate: 0.1
         init_scale: 0.04
-        label_smoothing_confidence: 1.0
+        label_smoothing_confidence: 0.9
     structure: transformer
     loss_type: CE
     prob_start: 0.1
     prob_end: 3.0
     start_warmup_steps: 8000
     interim_steps: 10000
+    shallow_fusion: True
+    rerank: True
 
-dev_step: 5000
-decode_step: 1000
+dev_step: 500
+decode_step: 50
 save_step: 500
 
 gpus: '0,1,2,3'
-# gpus: '0'
 
-num_epochs: 100000
-keep_training: True
-num_steps: 500000
-
-bucket_boundaries: 122,159,186,208,228,247,264,279,295,310,325,340,354,368,383,399,415,433,450,469,491,514,541,571,609,656,720,822,1010
-num_batch_tokens: 20000
+num_epochs: 10000
+num_steps: 1000000
+bucket_boundaries: 196,286,346,384,408,424,436,447,455,463,470,476,482,487,492,497,502,507,512,516,521,526,531,540,560,817
+num_batch_tokens: 13000
 
 opti:
     beta1: 0.9
@@ -81,17 +76,14 @@ default_stddev: 0.046875
 
 # learning rate
 optimizer: adam
-warmup_steps: 10000
-peak: 0.00005
-decay_steps: 20000
+## warm up need to be large enough!
+warmup_steps: 15000
+peak: 0.0002
+decay_steps: 15000
 beam_size: 1
-# beam_size: 10
-num_threads: 8
 
 length_penalty_weight: 0.0
-lambda_l2: 0.0
-lambda_lm: 0.0
-lambda_rerank: 0.0
+lambda_l2: 0.0001
 
 grad_clip_value: 0.0
 slot_clip_value: 0.0
