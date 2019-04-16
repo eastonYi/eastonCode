@@ -10,7 +10,24 @@
     Supporting `.ark` file which is the standard type in Kaldi.
 
     Another thing this script will do is summarize the dataset and gives a proper bucket setting. This will iter your dataset. The bucket setting is related to your raw feature length and the frame skipping strategy (setting in your `.yaml`). So you need to reset you bucket boundary if you change them.
-
+2. congfig your `vocab.txt`
+    a) if you use attention (e.g. transformer model), you need to add `<sos>` and `<eos>`
+    ```
+    <pad>
+    <unk>
+    <sos>
+    <eos>
+    d
+    ...
+    ```
+    b) if use CTC like loss (e.g. CTC model), you need to add `<blk>` at end of the vocab file
+    ```
+    <pad>
+    <unk>
+    d
+    ...
+    <blk>
+    ```
 2. Configure your `.yaml` file
 3. Train the model
     ```python
