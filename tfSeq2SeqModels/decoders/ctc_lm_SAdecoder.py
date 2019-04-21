@@ -200,7 +200,7 @@ class CTC_LM_SA_Decoder(RNADecoder):
         self.cell = make_multi_cell(
             num_cell_units=self.num_cell_units_de,
             is_train=self.is_train,
-            keep_prob=1-self.dropout,
+            keep_prob=1-self.args.models.dropout,
             rnn_mode='BLOCK',
             num_layers=self.num_layers,
             dim_output=self.dim_output)

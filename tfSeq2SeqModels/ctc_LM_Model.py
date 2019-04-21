@@ -50,13 +50,11 @@ class CTCLMModel(Seq2SeqModel):
                 name='decoder2')
             self.schedule = decoder.schedule
 
-            hidden_output, (len_hidden_output, hidden_bottleneck) = self.encoder(
+            hidden_output, len_hidden_output = self.encoder(
                 features=tensors_input.feature_splits[id_gpu],
                 len_feas=tensors_input.len_fea_splits[id_gpu])
-            if self.args.model.true_end2end:
-                acoustic, alignment, len_acoustic = self.fc_decoder(hidden_output, len_hidden_output)
-            else:
-                acoustic, alignment, len_acoustic = self.fc_decoder(hidden_bottleneck, len_hidden_output)
+
+            acoustic, alignment, len_acoustic = self.fc_decoder(hidden_output, len_hidden_output)
 
             if not self.args.model.train_encoder:
                 acoustic = tf.stop_gradient(acoustic)
@@ -67,8 +65,8 @@ class CTCLMModel(Seq2SeqModel):
             # whether to shrink the hidden or the acoutic distribution
             if self.args.model.shrink_hidden == 'distribution':
                 hidden_output = distribution_acoustic
-            elif self.args.model.shrink_hidden == 'self-define':
-                hidden_output = hidden_bottleneck
+            # elif self.args.model.shrink_hidden == 'self-define':
+            #     hidden_output = hidden_bottleneck
             elif self.args.model.shrink_hidden == 'hidden_output':
                 hidden_output = hidden_output
 
@@ -166,7 +164,13 @@ class CTCLMModel(Seq2SeqModel):
                         table_targets_distributions=table_targets_distributions,
                         len_logits=len_decoded,
                         len_labels=tensors_input.len_label_splits[id_gpu])
-
+                elif self.args.model.decoder_loss == 'LM_CE':
+                    ocd_loss = self.lm_ce_loss(
+                        logits=logits,
+                        len_logits=len_decoded,
+                        labels=tensors_input.label_splits[id_gpu],
+                        decoded=decoded,
+                        len_decoded=len_decoded)
                 else:
                     logging.info('not found loss type for decoder!')
 
@@ -372,6 +376,44 @@ class CTCLMModel(Seq2SeqModel):
 
             if self.args.model.token_level_ocd: # token-level
                 loss /= tf.reduce_sum(mask)
+
+        return loss
+
+    def lm_ce_loss(self, logits, len_logits, labels, decoded, len_decoded):
+        """
+        Compute optimization loss.
+        batch major
+        """
+        from tfModels.OptimalDistill import OCD
+
+        ac_distributions, _ = OCD(
+            hyp=decoded,
+            ref=labels,
+            vocab_size=self.args.dim_output)
+
+        with tf.variable_scope(self.args.top_scope, reuse=True):
+            with tf.variable_scope(self.args.lm_scope):
+                pad_sos = tf.ones([tf.shape(decoded)[0], 1], dtype=tf.int32) * self.args.sos_idx
+                decoded = tf.concat([pad_sos, decoded], 1)
+                _, lm_distributions = self.args.lm_obj.decoder.score(decoded, len_decoded)
+                lm_distributions = tf.stop_gradient(lm_distributions)
+
+        # ac_lm_targets = 0.5*ac_distributions + 0.5*lm_distributions
+        ac_lm_targets = 0.7*ac_distributions + 0.3*lm_distributions
+        # ac_lm_targets = ac_distributions
+        crossent = tf.nn.softmax_cross_entropy_with_logits_v2(
+            labels=ac_lm_targets,
+            logits=logits)
+
+        pad_mask = tf.sequence_mask(
+            len_logits,
+            maxlen=tf.shape(logits)[1],
+            dtype=logits.dtype)
+
+        loss = tf.reduce_sum(crossent * pad_mask, -1) # utt-level
+
+        if self.args.model.token_level_ocd: # token-level
+            loss /= tf.reduce_sum(pad_mask, -1)
 
         return loss
 

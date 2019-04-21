@@ -54,7 +54,7 @@ class CTC_LM_SACA_Decoder(RNADecoder):
                                 tf.concat([encoded[:, :1, :], encoded[:, :-1, :]], 1)], -1)
 
         def step(i, preds, cache_decoder, logits):
-            encoder_output_i = tf.reshape(encoded[:, i, :], [batch_size, self.frame_expand, self.args.model.encoder.bottleneck])
+            encoder_output_i = tf.reshape(encoded[:, i, :], [batch_size, self.frame_expand, self.num_cell_units_en])
             # encoder_output_i = tf.reshape(encoded[:, i, :], [batch_size, self.frame_expand, self.dim_output])
             encoder_attention_bias_i = tf.equal(tf.reduce_sum(tf.abs(encoder_output_i), axis=-1), 0.0)
             encoder_attention_bias_i = common_attention.attention_bias_ignore_padding(encoder_attention_bias_i)
@@ -193,7 +193,6 @@ class CTC_LM_SACA_Decoder(RNADecoder):
                                self.lm.args.model.decoder.num_blocks,
                                self.lm.args.model.decoder.num_cell_units])
 
-
         # collect the initial states of lstms used in decoder.
         base_indices = tf.reshape(tf.tile(tf.range(batch_size)[:, None], multiples=[1, beam_size]), shape=[-1])
 
@@ -201,7 +200,7 @@ class CTC_LM_SACA_Decoder(RNADecoder):
             """
             the cache has no specific shape, so no can be put in the all_states
             """
-            encoder_output_i = tf.reshape(encoded[:, i, :], [batch_size * beam_size, self.frame_expand, self.num_cell_units])
+            encoder_output_i = tf.reshape(encoded[:, i, :], [batch_size * beam_size, self.frame_expand, self.num_cell_units_en])
             encoder_attention_bias_i = tf.equal(tf.reduce_sum(tf.abs(encoder_output_i), axis=-1), 0.0)
             encoder_attention_bias_i = common_attention.attention_bias_ignore_padding(encoder_attention_bias_i)
 

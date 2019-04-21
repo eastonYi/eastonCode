@@ -122,7 +122,7 @@ class LM_Decoder(object):
 
     def score(self, decoder_input, len_seqs):
         '''
-        decoder_input : <sos> + sent + <eos>
+        decoder_input : <sos> + sent (+ <eos>)
         score batch sentences
         utilize the `decoder_impl`
         return batch_score(log scale)

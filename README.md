@@ -1,39 +1,100 @@
 # An efficient end-to-end toolkit for ASR implemented with TensorFlow
 
 ##  How to use
-1. Prepare Data
-    Transfer your raw audio data into tfdata for fast load during training.
-    ```python
-    python ../../dataset.py -c configs/demo.yaml
-    ```
-    A demo yaml file can be found in `eastonCode/Projects/asr-tf/exps/aishell2/configs`.
-    Supporting `.ark` file which is the standard type in Kaldi.
-
-    Another thing this script will do is summarize the dataset and gives a proper bucket setting. This will iter your dataset. The bucket setting is related to your raw feature length and the frame skipping strategy (setting in your `.yaml`). So you need to reset you bucket boundary if you change them.
-2. congfig your `vocab.txt`
+Configure your `.yaml` file
+1. congfig your `vocab.txt`
     a) if you use attention (e.g. transformer model), you need to add `<sos>` and `<eos>`
     ```
     <pad>
     <unk>
     <sos>
     <eos>
-    d
+    a
+    b
     ...
     ```
     b) if use CTC like loss (e.g. CTC model), you need to add `<blk>` at end of the vocab file
     ```
     <pad>
     <unk>
-    d
+    a
+    b
     ...
     <blk>
     ```
-2. Configure your `.yaml` file
+2. set the unit in `.yaml`:
+    - `word` is for the units that used in trans and split by space. Usually for Chinese characters and english words modelling units.
+    - `char` is for character units where `<space>` is needed to add in the vocab.txt. The programes will merge chars into a word and replace `<space>` with ` ` (not recommend)
+    - `subword` is used for subword where `@@` is in vocab units and will merge subwords into words.
+1. Prepare wav and translation data
+    Supporting wav file and `.ark` file which is the standard type in Kaldi.
+    For efficiency, we need to convert the wav data to tf.data format first.
+    Note the the trans is split by the space (i.e. ` `)
+    a) if you use wav files, prepare your `csv` file, the `.yaml` file looks like this:
+    ```
+    train:
+        data: /mnt/lustre/xushuang/easton/data/AISHELL-2/iOS/data/train_1kh_char.csv
+        tfdata: /mnt/lustre/xushuang/easton/projects/asr-ctc-tf/exp/aishell/char_data/train
+    dev:
+        data: /mnt/lustre/xushuang/easton/data/AISHELL-2/iOS/dev/dev_char.csv
+        tfdata: /mnt/lustre/xushuang/easton/projects/asr-ctc-tf/exp/aishell/char_data/dev
+    test:
+        # data: /mnt/lustre/xushuang/easton/data/AISHELL-2/iOS/test/test_char.csv
+        data: /mnt/lustre/xushuang/easton/data/AISHELL-2/iOS/dev/dev_char.csv
+    type: csv
+    ...
+    ```
+    and `csv` file:
+    ```
+    /mnt/lustre/xushuang/easton/data/AISHELL-2/iOS/data/wav/C0001/IC0001W0001.wav,厨 房 用 具
+    /mnt/lustre/xushuang/easton/data/AISHELL-2/iOS/data/wav/C0001/IC0001W0002.wav,电 蒸 锅
+    /mnt/lustre/xushuang/easton/data/AISHELL-2/iOS/data/wav/C0001/IC0001W0003.wav,电 蒸 锅
+    /mnt/lustre/xushuang/easton/data/AISHELL-2/iOS/data/wav/C0001/IC0001W0004.wav,嵌 入 式 灶 具
+    /mnt/lustre/xushuang/easton/data/AISHELL-2/iOS/data/wav/C0001/IC0001W0005.wav,水 槽 洗 碗 机
+    /mnt/lustre/xushuang/easton/data/AISHELL-2/iOS/data/wav/C0001/IC0001W0006.wav,宜 家 家 居 北 京 商 场 店
+    ```
+    b) if you use `scp` files, the `.yaml` file looks like this:
+    ```
+    train:
+        data: /mnt/lustre/xushuang/easton/data/hkust/word/train/feats.train_3x.scp
+        label: /mnt/lustre/xushuang/easton/data/hkust/word/train/word.train_3x.scp
+        tfdata: /mnt/lustre/xushuang/easton/data/hkust/word/train
+    dev:
+        data: /mnt/lustre/xushuang/easton/data/hkust/word/train_dev/feats.train_dev.scp
+        label: /mnt/lustre/xushuang/easton/data/hkust/word/train_dev/word.train_dev.scp
+        tfdata: /mnt/lustre/xushuang/easton/data/hkust/word/train_dev
+    test:
+        data: /mnt/lustre/xushuang/easton/data/hkust/word/dev/feats.dev.scp
+        label: /mnt/lustre/xushuang/easton/data/hkust/word/dev/word.dev.scp
+        tfdata: /mnt/lustre/xushuang/easton/data/hkust/word/dev
+    type: scp
+    ```
+    and `scp` file:
+    ```
+    20040615_154204_A001457_B001456-A-000000-000191 喂 你 好
+    20040615_154204_A001457_B001456-A-000191-000541 [LAUGHTER] 请 问 你 是 哪 里 的 呀
+    20040615_154204_A001457_B001456-A-000541-001137 [LAUGHTER] 我 也 是 吉 林 的 你 在 哪 个 学 校 上 学 呀
+    20040615_154204_A001457_B001456-A-001137-001702 啊 我 也 是 [LAUGHTER] 那 咱 俩 是 校 友 啊
+    20040615_154204_A001457_B001456-A-001702-001996 [LAUGHTER] 我 叫 马 帅
+    20040615_154204_A001457_B001456-A-001996-002463 [NOISE]
+    ```
+    Demo yaml files can be found in `eastonCode/Projects/asr-tf/exps/aishell2/configs`.
+2. Convert Data
+    Transfer your audio data along with translations into tfdata for fast load during training. (Here the `dataset.py` is in top and top of the running path)
+        ```python
+        python ../../dataset.py -c configs/demo.yaml
+        ```
+3. Set Bucket
+    Another thing this script will do is summarize the dataset and gives a proper bucket setting. This will iter your dataset. The bucket setting is related to your raw feature length and the frame skipping strategy (setting in your `.yaml`). So you need to reset you bucket boundary if you change them.
+    if the recommand number of boundaries is low, you'd better enlarge the `idx_init` in the `dataset.py` and run the above command again (the data is already converted to tfdata, and you can commit the `save2tfrecord` to save time)
+    Replace the original `bucket_boundaries` in the `.yaml` file with the recommend one.
+
 3. Train the model
     ```python
     python ../../main.py -c configs/demo.yaml
     ```
 4. Infer with a trained model
+    setting `checkpoint_init` and run:
     ```python
     python ../../main.py -m infer --gpu 0 -c configs/demo.yaml
     ```

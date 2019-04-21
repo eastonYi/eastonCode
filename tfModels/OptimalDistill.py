@@ -108,7 +108,7 @@ def optimal_completion_targets(hyp, ref):
     mask_min = np.equal(d, np.stack([m]*d.shape[-1], -1)).astype(np.int32)
     del d
 
-    return mask_min, m
+    return mask_min
 
 def optimal_completion_targets_with_blank(hyp, ref, blank_id):
     '''
