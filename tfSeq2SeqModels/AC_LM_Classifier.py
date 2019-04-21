@@ -12,6 +12,11 @@ logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format='%(levelname)
 
 
 class AC_LM_Classifier(Seq2SeqModel):
+    '''
+    this model used to fusion acoutic model and lamguage model
+    the acoustic model need to be respect to acoutic and remove context dependent info
+    so conv net and is the ideal model. 
+    '''
 
     def __init__(self, tensor_global_step, encoder, decoder, decoder2, is_train, args,
                  batch=None, embed_table_encoder=None, embed_table_decoder=None,

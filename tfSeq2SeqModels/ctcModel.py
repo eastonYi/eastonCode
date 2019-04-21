@@ -11,6 +11,9 @@ logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format='%(levelname)
 
 
 class CTCModel(Seq2SeqModel):
+    '''
+    CTC model is viewed as seq2seq model with the final FC layer as decoder.
+    '''
     def __init__(self, tensor_global_step, encoder, decoder, is_train, args,
                  batch=None, embed_table_encoder=None, embed_table_decoder=None,
                  name='CTC_Model'):
@@ -36,11 +39,6 @@ class CTCModel(Seq2SeqModel):
             hidden_output, len_hidden_output = encoder(
                 features=tensors_input.feature_splits[id_gpu],
                 len_feas=tensors_input.len_fea_splits[id_gpu])
-
-            # hidden_output,( _, len_hidden_output) = encoder(
-            # # _, hidden_output, len_hidden_output = encoder(
-            #     features=tensors_input.feature_splits[id_gpu],
-            #     len_feas=tensors_input.len_fea_splits[id_gpu])
 
             logits, align, len_logits = decoder(hidden_output, len_hidden_output)
 

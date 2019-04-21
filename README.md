@@ -88,6 +88,7 @@ Configure your `.yaml` file
     Another thing this script will do is summarize the dataset and gives a proper bucket setting. This will iter your dataset. The bucket setting is related to your raw feature length and the frame skipping strategy (setting in your `.yaml`). So you need to reset you bucket boundary if you change them.
     if the recommand number of boundaries is low, you'd better enlarge the `idx_init` in the `dataset.py` and run the above command again (the data is already converted to tfdata, and you can commit the `save2tfrecord` to save time)
     Replace the original `bucket_boundaries` in the `.yaml` file with the recommend one.
+    **NOTATION:** you need to update your bucket setting once you use new dataset or change frame rate (`downsample` in the config).
 
 3. Train the model
     ```python
@@ -151,6 +152,6 @@ Please look Projects for more details.
 all the model files and utility files are here. We need to additionally prepare the project folder, where the batch loop and log pytho commands exist.
 
 # Acknowledgements
-https://github.com/chqiwang/transformer \\
+https://github.com/chqiwang/transformer
 https://github.com/vrenkens/nabu
 ...

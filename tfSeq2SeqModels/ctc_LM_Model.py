@@ -12,7 +12,10 @@ logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format='%(levelname)
 
 
 class CTCLMModel(Seq2SeqModel):
-
+    '''
+    decoder is the fc layer for ctc model;
+    decoder2 is the extral model for langaige modelling
+    '''
     def __init__(self, tensor_global_step, encoder, decoder, decoder2, is_train, args,
                  batch=None, embed_table_encoder=None, embed_table_decoder=None,
                  name='RNA_Model'):
@@ -62,74 +65,32 @@ class CTCLMModel(Seq2SeqModel):
             # used to guide the shrinking of the hidden_output
             distribution_acoustic = tf.nn.softmax(acoustic)
 
-            # whether to shrink the hidden or the acoutic distribution
-            if self.args.model.shrink_hidden == 'distribution':
-                hidden_output = distribution_acoustic
-            # elif self.args.model.shrink_hidden == 'self-define':
-            #     hidden_output = hidden_bottleneck
-            elif self.args.model.shrink_hidden == 'hidden_output':
-                hidden_output = hidden_output
-
-            blank_id = self.args.dim_ctc_output-1 if self.args.dim_ctc_output else self.args.dim_output-1
-            if self.args.model.avg_repeated:
-                if self.args.model.true_end2end:
-                    from tfModels.CTCShrink import acoustic_hidden_shrink_v3
-                    hidden_shrunk, len_no_blank = acoustic_hidden_shrink_v3(
-                        distribution_acoustic,
-                        hidden_output,
-                        len_acoustic,
-                        blank_id,
-                        self.args.model.frame_expand)
-                    # from tfModels.CTCShrink import acoustic_feature_shrink
-                    # hidden_shrunk, len_no_blank = acoustic_feature_shrink(
-                    #     distribution_acoustic,
-                    #     x,
-                    #     len_acoustic,
-                    #     blank_id,
-                    #     self.args.model.frame_expand)
-                else:
-                    from tfModels.CTCShrink import acoustic_hidden_shrink_tf
-                    hidden_shrunk, len_no_blank = acoustic_hidden_shrink_tf(
-                        distribution_acoustic=distribution_acoustic,
-                        hidden=hidden_output,
-                        len_acoustic=len_acoustic,
-                        blank_id=blank_id,
-                        frame_expand=self.args.model.frame_expand)
-
-                if self.is_train and self.args.model.dropout > 0.0:
-                    hidden_shrunk = tf.nn.dropout(hidden_shrunk, keep_prob=1-self.args.model.dropout)
-                # from tfModels.CTCShrink import acoustic_hidden_shrink_v2
-                # hidden_shrunk, len_no_blank = acoustic_hidden_shrink_v2(
-                #     distribution_acoustic=distribution_acoustic,
-                #     hidden=hidden_output,
-                #     len_acoustic=len_acoustic,
-                #     blank_id=blank_id,
-                #     frame_expand=self.args.model.frame_expand)
-                # hidden_shrunk = tf.stop_gradient(hidden_shrunk)
-                # len_no_blank = tf.stop_gradient(len_no_blank)
-            # else:
-            #     from tfTools.tfTools import acoustic_hidden_shrink
-            #     hidden_shrunk, len_no_blank = acoustic_hidden_shrink(
-            #         distribution_acoustic=distribution_acoustic,
-            #         hidden=hidden_output,
-            #         len_acoustic=len_acoustic,
-            #         blank_id=blank_id,
-            #         hidden_size=self.args.model.encoder.num_cell_units,
-            #         num_avg=self.args.model.num_avg)
+            blank_id = self.args.dim_output-1
+            if self.args.model.true_end2end:
+                from tfModels.CTCShrink import acoustic_hidden_shrink_v3
+                hidden_shrunk, len_no_blank = acoustic_hidden_shrink_v3(
+                    distribution_acoustic,
+                    hidden_output,
+                    len_acoustic,
+                    blank_id,
+                    self.args.model.frame_expand)
+            else:
+                from tfModels.CTCShrink import acoustic_hidden_shrink_tf
+                hidden_shrunk, len_no_blank = acoustic_hidden_shrink_tf(
+                    distribution_acoustic=distribution_acoustic,
+                    hidden=hidden_output,
+                    len_acoustic=len_acoustic,
+                    blank_id=blank_id,
+                    frame_expand=self.args.model.frame_expand)
 
             if (not self.is_train) and (self.args.beam_size>1):
                 # infer phrase
                 with tf.variable_scope(decoder.name or 'decoder'):
                     if self.args.dirs.lm_checkpoint:
                         logging.info('beam search with language model ...')
-                        if self.args.model.rerank:
-                            logits, decoded, len_decoded = decoder.beam_decode_rerank(
-                                hidden_shrunk,
-                                len_no_blank)
-                        else:
-                            logits, decoded, len_decoded = decoder.beam_decode_lm(
-                                hidden_shrunk,
-                                len_no_blank)
+                        logits, decoded, len_decoded = decoder.beam_decode_rerank(
+                            hidden_shrunk,
+                            len_no_blank)
                     else:
                         logging.info('beam search ...')
                         logits, decoded, len_decoded = decoder.beam_decode(
@@ -184,35 +145,6 @@ class CTCLMModel(Seq2SeqModel):
                     ctc_loss = tf.constant(0.0)
                 loss = self.schedule * ocd_loss + (1-self.schedule) * ctc_loss
 
-                if self.args.model.teacher_forcing and self.is_train:
-                    decoder_input = decoder.build_input(
-                        id_gpu=id_gpu,
-                        tensors_input=tensors_input)
-                    logits_lm = decoder.teacher_forcing(
-                        hidden_shrunk,
-                        len_no_blank,
-                        decoder_input,
-                        tf.reduce_max(tensors_input.len_label_splits))
-                    crossent_lm = smoothing_cross_entropy(
-                        logits=logits_lm,
-                        labels=tensors_input.label_splits[id_gpu],
-                        vocab_size=self.args.dim_output,
-                        confidence=0.9)
-                    mask_lm = tf.sequence_mask(
-                        tensors_input.len_label_splits[id_gpu],
-                        maxlen=tf.shape(logits_lm)[1],
-                        dtype=logits_lm.dtype)
-                    lm_loss = tf.reduce_sum(crossent_lm * mask_lm)/tf.reduce_sum(mask_lm)
-                    loss += lm_loss
-
-                if self.args.musk_update:
-                    self.idx_update = self.deserve_idx(
-                        decoded,
-                        len_decoded,
-                        tensors_input.label_splits[id_gpu],
-                        tensors_input.len_label_splits[id_gpu])
-                    loss = tf.reshape(tf.gather(loss, self.idx_update), [-1])
-
                 with tf.name_scope("gradients"):
                     assert loss.get_shape().ndims == 1
                     loss = tf.reduce_mean(loss)
@@ -227,7 +159,6 @@ class CTCLMModel(Seq2SeqModel):
             [decoded, tensors_input.label_splits[id_gpu], distribution_acoustic, len_acoustic, len_no_blank, hidden_shrunk, ctc_loss, ocd_loss]
             # return loss, gradients, tf.no_op()
         else:
-
             return logits, len_decoded, decoded
 
     def build_infer_graph(self):
@@ -249,20 +180,16 @@ class CTCLMModel(Seq2SeqModel):
         return batch shape loss
         if `len_logits` is all zero. then outputs the 0
         """
-        from tfModels.OCDLoss import OCD_loss
+        from tfModels.OptimalDistill import OCD
 
-        optimal_distributions, optimal_targets = OCD_loss(
+        optimal_distributions, optimal_targets = OCD(
             hyp=decoded,
             ref=labels,
             vocab_size=self.args.dim_output)
-        try:
-            crossent = tf.nn.softmax_cross_entropy_with_logits_v2(
-                labels=optimal_distributions,
-                logits=logits)
-        except:
-            crossent = tf.nn.softmax_cross_entropy_with_logits(
-                labels=optimal_distributions,
-                logits=logits)
+
+        crossent = tf.nn.softmax_cross_entropy_with_logits_v2(
+            labels=optimal_distributions,
+            logits=logits)
 
         pad_mask = tf.sequence_mask(
             len_logits,
@@ -416,28 +343,3 @@ class CTCLMModel(Seq2SeqModel):
             loss /= tf.reduce_sum(pad_mask, -1)
 
         return loss
-
-    def deserve_idx(self, decoded, len_decoded, labels, len_labels):
-        """
-        if one sent is correct during training, then not to train on it
-        """
-        decoded_sparse = dense_sequence_to_sparse(
-            seq=decoded,
-            len_seq=len_decoded)
-        label_sparse = dense_sequence_to_sparse(
-            seq=labels,
-            len_seq=len_labels)
-
-        distance = tf.edit_distance(decoded_sparse, label_sparse, normalize=False)
-        indices = tf.where(distance>1)
-
-        return indices
-
-    def get_embedding(self, embed_table, size_input, size_embedding):
-        if size_embedding and (type(embed_table) is not tf.Variable):
-            with tf.device("/cpu:0"):
-                with tf.variable_scope(self.name, reuse=(self.__class__.num_Model > 0)):
-                    embed_table = tf.get_variable(
-                        "embedding", [size_input, size_embedding], dtype=tf.float32)
-
-        return embed_table
