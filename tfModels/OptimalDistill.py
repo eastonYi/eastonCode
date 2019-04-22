@@ -285,6 +285,7 @@ def Qvalue(hyp, ref):
 
     return q
 
+
 def OCD(hyp, ref, vocab_size):
     """
     make sure the padding id is 0!

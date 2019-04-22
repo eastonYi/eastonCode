@@ -40,13 +40,10 @@ class Seq2SeqModel(LSTM_Model):
         if embed_table_encoder or (not encoder):
             """
             embed_table_encoder: MT
-            not encoder: only decoder, LM
+            no encoder, only decoder: LM
             """
             self.build_pl_input = self.build_idx_input
             self.build_infer_input = self.build_infer_idx_input
-
-        self.helper_type = args.model.decoder.trainHelper if is_train \
-            else args.model.decoder.inferHelper
 
         super().__init__(tensor_global_step, is_train, args, batch=batch, name=name)
 
@@ -284,7 +281,11 @@ class Seq2SeqModel(LSTM_Model):
         return tensors_input
 
     def get_embedding(self, embed_table, size_input, size_embedding):
+        '''
+        if embed_table is not none, return it; else we will create a trainable one
+        '''
         if size_embedding and (type(embed_table) is not tf.Variable):
+            assert size_input
             with tf.device("/cpu:0"):
                 # with tf.variable_scope(self.name, reuse=(self.__class__.num_Model > 0)):
                 with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):

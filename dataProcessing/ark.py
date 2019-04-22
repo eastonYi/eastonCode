@@ -20,8 +20,8 @@ limitations under the License.
 import struct
 import numpy as np
 
-np.set_printoptions(threshold=np.nan)
-np.set_printoptions(linewidth=np.nan)
+# np.set_printoptions(threshold=np.nan)
+# np.set_printoptions(linewidth=np.nan)
 
 class ArkReader(object):
     '''

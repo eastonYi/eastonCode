@@ -43,8 +43,7 @@ class Encoder(object):
             - the sequence lengths of the outputs as a dictionary of
                 [batch_size] tensors
         '''
-        with tf.variable_scope(self.name or 'encoder'):
-            outputs, output_seq_length = self.encode(features, len_feas)
+        outputs, output_seq_length = self.encode(features, len_feas)
 
         return outputs, output_seq_length
 
