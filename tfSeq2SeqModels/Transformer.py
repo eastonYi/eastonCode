@@ -65,12 +65,12 @@ class Transformer(Seq2SeqModel):
                     # infer phrases
                     if self.args.beam_size>1:
                         logging.info('beam search with language model ...')
-                        logits, preds, len_decoded = decoder.beam_decode_rerank(
+                        results, preds, len_decoded = decoder.beam_decode_rerank(
                             encoded,
                             len_encoded)
                     else:
                         logging.info('gready search ...')
-                        beam_results, preds, len_decoded = decoder.decoder_with_caching(
+                        results, preds, len_decoded = decoder.decoder_with_caching(
                             encoded,
                             len_encoded)
                 else:
@@ -90,6 +90,7 @@ class Transformer(Seq2SeqModel):
                     constrain the max decode length for ocd training since model
                     will decode to that long at beginning. Recommend 30.
                     """
+                    logits = results
                     loss, _ = self.ocd_loss(
                         logits=logits,
                         len_logits=len_decoded,
@@ -99,6 +100,22 @@ class Transformer(Seq2SeqModel):
                     #     logits=logits,
                     #     labels=preds,
                     #     len_labels=len_decoded)
+                elif self.args.model.loss_type == 'beam_OCD':
+                    logits, preds, len_decoded, _, _ = results
+                    batch= tf.shape(logits)[0]
+                    beam_size = self.args.beam_size
+                    batch_x_beam = batch*beam_size
+                    logits = tf.reshape(logits, [batch_x_beam, -1, self.args.dim_output])
+                    len_decoded = tf.reshape(len_decoded, [-1])
+                    preds = tf.reshape(preds, [batch_x_beam, -1])
+                    labels = tf.reshape(tf.tile(tensors_input.label_splits[id_gpu][:, None, :], [1, beam_size, 1]),
+                                        [batch_x_beam, -1])
+                    # logits = tf.Print(logits, [batch_x_beam, tf.shape(logits), tf.shape(preds), tf.shape(labels), tf.shape(len_decoded)], message='batch_x_beam, logits, preds, labels, len_decoded: ', summarize=1000)
+                    loss, _ = self.ocd_loss(
+                        logits=logits,
+                        len_logits=len_decoded,
+                        labels=labels,
+                        preds=preds)
                 elif self.args.model.loss_type == 'CE':
                     loss = self.ce_loss(
                         logits=logits,
@@ -113,7 +130,7 @@ class Transformer(Seq2SeqModel):
                         table_targets_distributions=table_targets_distributions,
                         len_labels=tensors_input.len_label_splits[id_gpu])
                 else:
-                    raise NotImplemented('NOT found loss type!')
+                    raise NotImplementedError('NOT found loss type: {}'.format(self.args.model.loss_type))
 
                 with tf.name_scope("gradients"):
                     assert loss.get_shape().ndims == 1
@@ -128,4 +145,4 @@ class Transformer(Seq2SeqModel):
             # no_op is preserved for debug info to pass
             return loss, gradients, [preds, tensors_input.label_splits[id_gpu]]
         else:
-            return beam_results, len_decoded, preds
+            return results, len_decoded, preds

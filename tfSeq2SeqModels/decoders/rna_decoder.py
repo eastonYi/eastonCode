@@ -25,9 +25,11 @@ class RNADecoder(Decoder):
         self.dim_output = args.dim_output
         self.beam_size = args.beam_size
         self.softmax_temperature = args.model.decoder.softmax_temperature
-        if args.model.shallow_fusion or args.model.rerank or args.model.cold_fusion:
+        if args.lm_obj:
             logging.info('load language model object: {}'.format(args.lm_obj))
             self.lm = args.lm_obj
+        else:
+            self.lm = None
         super().__init__(args, is_train, global_step, embed_table, name)
 
 

@@ -154,18 +154,18 @@ class Seq2SeqModel(LSTM_Model):
 
     def ocd_loss(self, logits, len_logits, labels, preds):
         from tfModels.OCDLoss import OCD_loss
-        from tfModels.tools import smoothing_distribution
+        # from tfModels.tools import smoothing_distribution
 
         optimal_distributions, optimal_targets = OCD_loss(
             hyp=preds,
             ref=labels,
             vocab_size=self.args.dim_output)
 
-        if self.args.model.decoder.label_smoothing_confidence <1:
-            optimal_distributions = smoothing_distribution(
-                distributions=optimal_distributions,
-                vocab_size=self.args.dim_output,
-                confidence=self.args.model.decoder.label_smoothing_confidence)
+        # if self.args.model.decoder.label_smoothing_confidence <1:
+        #     optimal_distributions = smoothing_distribution(
+        #         distributions=optimal_distributions,
+        #         vocab_size=self.args.dim_output,
+        #         confidence=self.args.model.decoder.label_smoothing_confidence)
 
         crossent = tf.nn.softmax_cross_entropy_with_logits_v2(
             labels=optimal_distributions,

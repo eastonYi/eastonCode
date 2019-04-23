@@ -21,28 +21,29 @@ class Transformer_Encoder(Encoder):
         self.hidden_units = args.model.encoder.num_cell_units
         self.num_heads = args.model.encoder.num_heads
         self.num_blocks = args.model.encoder.num_blocks
-        self._ff_activation = tf.nn.relu
+        self._ff_activation = lambda x, y: x * tf.sigmoid(y) \
+                if args.model.decoder.activation == 'glu' else tf.nn.relu # glu
 
 
     def encode(self, features, len_feas):
 
-
-        # Mask
-        encoder_padding = tf.equal(tf.sequence_mask(len_feas, maxlen=tf.shape(features)[1]), False) # bool tensor
-        encoder_attention_bias = common_attention.attention_bias_ignore_padding(encoder_padding)
-
-        # Add positional signal
-        encoder_output = common_attention.add_timing_signal_1d(features)
-        # Dropout
-        encoder_output = tf.layers.dropout(encoder_output,
-                                           rate=self.residual_dropout_rate,
-                                           training=self.is_train)
         encoder_output = tf.layers.dense(
-            inputs=encoder_output,
+            inputs=features,
             units=self.hidden_units,
             activation=None,
             use_bias=False,
             name='encoder_fc')
+        encoder_output = tf.contrib.layers.layer_norm(encoder_output, center=True, scale=True, trainable=True)
+
+        # Add positional signal
+        encoder_output = common_attention.add_timing_signal_1d(encoder_output)
+        # Dropout
+        encoder_output = tf.layers.dropout(encoder_output,
+                                           rate=self.residual_dropout_rate,
+                                           training=self.is_train)
+        # Mask
+        encoder_padding = tf.equal(tf.sequence_mask(len_feas, maxlen=tf.shape(features)[1]), False) # bool tensor
+        encoder_attention_bias = common_attention.attention_bias_ignore_padding(encoder_padding)
 
         # Blocks
         for i in range(self.num_blocks):
