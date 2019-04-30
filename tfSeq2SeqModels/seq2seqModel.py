@@ -153,28 +153,35 @@ class Seq2SeqModel(LSTM_Model):
         return loss
 
     def ocd_loss(self, logits, len_logits, labels, preds):
-        from tfModels.OCDLoss import OCD_loss
-        # from tfModels.tools import smoothing_distribution
+        from tfModels.OptimalDistill import OCD
 
-        optimal_distributions, optimal_targets = OCD_loss(
+        optimal_distributions, optimal_targets = OCD(
             hyp=preds,
             ref=labels,
             vocab_size=self.args.dim_output)
 
+        # from tfModels.tools import smoothing_distribution
         # if self.args.model.decoder.label_smoothing_confidence <1:
         #     optimal_distributions = smoothing_distribution(
         #         distributions=optimal_distributions,
         #         vocab_size=self.args.dim_output,
         #         confidence=self.args.model.decoder.label_smoothing_confidence)
 
-        crossent = tf.nn.softmax_cross_entropy_with_logits_v2(
-            labels=optimal_distributions,
-            logits=logits)
+        try:
+            crossent = tf.nn.softmax_cross_entropy_with_logits_v2(
+                labels=optimal_distributions,
+                logits=logits)
+        except:
+            crossent = tf.nn.softmax_cross_entropy_with_logits(
+                labels=optimal_distributions,
+                logits=logits)
 
         pad_mask = tf.sequence_mask(
             len_logits,
             maxlen=tf.shape(logits)[1],
             dtype=logits.dtype)
+
+        # crossent = tf.Print(crossent, [optimal_targets[0], optimal_distributions[0]], message='optimal_targets, optimal_distributions: ', summarize=1000)
 
         loss = tf.reduce_sum(crossent * pad_mask, -1)/tf.reduce_sum(pad_mask, -1)
 

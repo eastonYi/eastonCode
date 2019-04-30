@@ -2,13 +2,9 @@
 contains the listener code'''
 
 import tensorflow as tf
-import numpy as np
 from .encoder import Encoder
-from tfModels.layers import residual, conv_lstm
 from tfModels.tensor2tensor import common_attention
 from ..tools.utils import residual, multihead_attention, ff_hidden
-
-from tfModels.tensor2tensor.common_layers import layer_norm
 
 
 class Transformer_Encoder(Encoder):
@@ -23,7 +19,6 @@ class Transformer_Encoder(Encoder):
         self.num_blocks = args.model.encoder.num_blocks
         self._ff_activation = lambda x, y: x * tf.sigmoid(y) \
                 if args.model.decoder.activation == 'glu' else tf.nn.relu # glu
-
 
     def encode(self, features, len_feas):
 

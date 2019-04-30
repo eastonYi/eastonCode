@@ -295,7 +295,7 @@ def OCD(hyp, ref, vocab_size):
     mask_min = tf.py_func(optimal_completion_targets, [hyp, ref], tf.int32)
     # mask_min = optimal_completion_targets_tf(hyp, ref)
 
-    tiled_ref = tf.tile(tf.expand_dims(ref, 1), [1, tf.shape(mask_min)[1], 1])
+    tiled_ref = tf.tile(ref[:, None, :], [1, tf.shape(mask_min)[1], 1])
     optimal_targets = tiled_ref * mask_min
 
     # optimal_targets = tf.Print(optimal_targets, [optimal_targets[0]], message='optimal_targets: ', summarize=1000)
@@ -312,11 +312,10 @@ def OCD(hyp, ref, vocab_size):
     optimal_distribution = tf.concat([tf.zeros(shape=[batch_size, time_size, 1], dtype=tf.float32),
                                       optimal_distribution[:, :, 1:]], -1)
     # average over all the optimal targets
-    optimal_distribution = tf.nn.softmax(optimal_distribution*1024)
-    # optimal_distribution = tf.stop_gradient(optimal_distribution)
+    optimal_distribution = tf.nn.softmax(optimal_distribution*2048)
+    optimal_distribution = tf.stop_gradient(optimal_distribution)
 
     return optimal_distribution, optimal_targets
-    # return optimal_distribution
 
 
 def OCD_with_blank_loss(hyp, ref, vocab_size):
@@ -511,13 +510,16 @@ def test_OCD_loss():
     """
     list_vocab = list('_SATRYUNDP-')
 
-    value_hyp = np.array([[list_vocab.index(s) for s in 'SATURDAY'],
-                          [list_vocab.index(s) for s in 'SUNDAY__']],
-                         dtype=np.int32)
+    # value_hyp = np.array([[list_vocab.index(s) for s in 'SATURDAY-'],
+    #                       [list_vocab.index(s) for s in 'SUNDAY__-']],
+    #                      dtype=np.int32)
+    #
+    # value_ref = np.array([[list_vocab.index(s) for s in 'SUNDAY-'],
+    #                       [list_vocab.index(s) for s in 'SUNDAY-']],
+    #                      dtype=np.int32)
 
-    value_ref = np.array([[list_vocab.index(s) for s in 'SUNDAY'],
-                          [list_vocab.index(s) for s in 'SUNDAY']],
-                         dtype=np.int32)
+    value_hyp = np.array([[2421, 326, 2526, 1986, 389, 153]], dtype=np.int32)
+    value_ref = np.array([[71,  1986, 389,  411, 2509, 2178]], dtype=np.int32)
 
     # list_vocab = list('_abcdefgmnop-')
     # value_hyp = np.array([[list_vocab.index(s) for s in 'abcdef']],
@@ -715,7 +717,7 @@ def test_optimal_completion_targets_tf():
 if __name__ == '__main__':
     # test_ED_tf()
     # test_ED_batch()
-    # test_OCD_loss()
-    test_Qvalue()
+    test_OCD_loss()
+    # test_Qvalue()
     # test_OCD_with_blank_loss()
     # test_optimal_completion_targets_tf()

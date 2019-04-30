@@ -38,15 +38,6 @@ def add_avg_hidden(list_hidden, list_frames):
         list_hidden.append(h)
         del list_frames[:]
 
-
-def add_weighted_avg_hidden(list_hidden, list_frames):
-    if list_frames:
-        frames, weights = list(zip(*list_frames))
-        h = np.average(frames, axis=0, weights=weights)
-        list_hidden.append(h)
-        del list_frames[:]
-
-
 def add_middle_hidden(list_hidden, list_frames):
     if list_frames:
         frames = list_frames
@@ -54,15 +45,6 @@ def add_middle_hidden(list_hidden, list_frames):
         h = frames[int(len(list_frames)/2)]
         list_hidden.append(h)
         del list_frames[:]
-
-
-def add_7_middle_hiddens(list_hidden, list_frames, frames):
-    if list_frames:
-        null = np.zeros_like(frames[0])
-        h = np.concatenate(list(frames) + [null]*(7-len(frames)))
-        list_hidden.append(h)
-        del list_frames[:]
-
 
 def add_concate_hidden(list_hidden, list_frames, num=4):
     if list_frames:
@@ -73,6 +55,44 @@ def add_concate_hidden(list_hidden, list_frames, num=4):
         list_hidden.append(h)
         del list_frames[:]
 
+def add_middle_frames(list_frames_new, list_idx, frames, num=16):
+    if list_idx:
+        middle_idx = np.mean(list_idx, dtype=np.int32)
+        frame_new = frames[max(middle_idx-num, 0): middle_idx+num]
+        if middle_idx-num < 0:
+            npad = ((2*num-frame_new.shape[0], 0), (0, 0))
+            frame_new = np.pad(frame_new, pad_width=npad, mode='constant', constant_values=0)
+        elif middle_idx+num > len(frames):
+            npad = ((0, 2*num-frame_new.shape[0]), (0, 0))
+            frame_new = np.pad(frame_new, pad_width=npad, mode='constant', constant_values=0)
+            
+        list_frames_new.append(frame_new)
+
+        del list_idx[:]
+
+# def add_weighted_avg_hidden(list_hidden, list_frames):
+#     if list_frames:
+#         frames, weights = list(zip(*list_frames))
+#         h = np.average(frames, axis=0, weights=weights)
+#         list_hidden.append(h)
+#         del list_frames[:]
+#
+#
+# def add_middle_hidden(list_hidden, list_frames):
+#     if list_frames:
+#         frames = list_frames
+#         # frames, weights = list(zip(*list_frames))
+#         h = frames[int(len(list_frames)/2)]
+#         list_hidden.append(h)
+#         del list_frames[:]
+#
+#
+# def add_7_middle_hiddens(list_hidden, list_frames, frames):
+#     if list_frames:
+#         null = np.zeros_like(frames[0])
+#         h = np.concatenate(list(frames) + [null]*(7-len(frames)))
+#         list_hidden.append(h)
+#         del list_frames[:]
 
 def acoustic_hidden_shrink(hidden, distribution_acoustic, alignments, len_acoustic, blank_id, num_frames=1):
     """
@@ -149,6 +169,69 @@ def acoustic_hidden_shrink_tf(distribution_acoustic, hidden, len_acoustic, blank
     len_no_blank.set_shape([None])
 
     return hidden_shrunk, len_no_blank
+
+
+def feature_shrink(feature, alignments, len_feature, blank_id, skip_rate, frame_expand=1):
+    """
+    alignments: [b x t/rate]
+    feature: [b x t x h]
+    num_post: the number of posterior hidden frame that add to the current one
+    """
+    list_batch = []
+    list_len = []
+    # batch loop
+    for i, frames in enumerate(feature):
+        # frames that in an utt
+        list_frames_new = []
+        token_pre = None
+        # frame indices of the same unit
+        list_idx = []
+        # time loop
+        for t in range(len_feature[i]):
+            j = t // skip_rate
+            if alignments[i][j] == token_pre:
+                # a repeated no blank
+                list_idx.append(t)
+
+            elif alignments[i][j] == blank_id:
+                # a blank
+                token_pre = None
+                add_middle_frames(list_frames_new, list_idx, frames, frame_expand)
+            else:
+                # a new no blank
+                add_middle_frames(list_frames_new, list_idx, frames, frame_expand)
+                token_pre = alignments[i][j]
+                list_idx = [t]
+
+        add_middle_frames(list_frames_new, list_idx, frames, frame_expand)
+
+        list_batch.append(list_frames_new)
+        list_len.append(len(list_frames_new))
+
+    # package frames into a batch
+    list_frames_padded = []
+    for frames in list_batch:
+        # the hidden is at least with length of 1
+        frames_padded = pad_to(frames, max(list_len+[1]), frame_expand * feature.shape[-1])
+        list_frames_padded.append(frames_padded)
+    features_shrunk = np.stack(list_frames_padded, 0)
+    # the hidden is at least with length of 1
+    len_features_shrunk = np.array([x if x != 0 else 1 for x in list_len], np.int32)
+
+    return features_shrunk, len_features_shrunk
+
+def feature_shrink_tf(distribution, feature, len_feature, blank_id, frame_expand):
+    """
+    NOTATION: the gradient will not pass over the input vars
+    """
+    alignments = tf.argmax(distribution, -1)
+    skip_rate = tf.shape(feature)[1] // tf.shape(distribution)[1]
+    feature_shrunk, len_feature = \
+        tf.py_func(feature_shrink, [feature, alignments, len_feature, blank_id, skip_rate, frame_expand], (tf.float32, tf.int32))
+    feature_shrunk.set_shape([None, None, frame_expand * feature.get_shape()[-1]])
+    len_feature.set_shape([None])
+
+    return feature_shrunk, len_feature
 
 
 def add_blank(list_num_tokens, list_token_musks, num_repeated, align, i):

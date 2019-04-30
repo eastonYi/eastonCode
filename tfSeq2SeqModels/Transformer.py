@@ -94,12 +94,9 @@ class Transformer(Seq2SeqModel):
                     loss, _ = self.ocd_loss(
                         logits=logits,
                         len_logits=len_decoded,
-                        labels=tensors_input.label_splits[id_gpu],
+                        labels=decoder_input.output_labels,
                         preds=preds)
-                    # loss = self.ce_loss(
-                    #     logits=logits,
-                    #     labels=preds,
-                    #     len_labels=len_decoded)
+
                 elif self.args.model.loss_type == 'beam_OCD':
                     logits, preds, len_decoded, _, _ = results
                     batch= tf.shape(logits)[0]
@@ -108,7 +105,7 @@ class Transformer(Seq2SeqModel):
                     logits = tf.reshape(logits, [batch_x_beam, -1, self.args.dim_output])
                     len_decoded = tf.reshape(len_decoded, [-1])
                     preds = tf.reshape(preds, [batch_x_beam, -1])
-                    labels = tf.reshape(tf.tile(tensors_input.label_splits[id_gpu][:, None, :], [1, beam_size, 1]),
+                    labels = tf.reshape(tf.tile(decoder_input.output_labels[:, None, :], [1, beam_size, 1]),
                                         [batch_x_beam, -1])
                     # logits = tf.Print(logits, [batch_x_beam, tf.shape(logits), tf.shape(preds), tf.shape(labels), tf.shape(len_decoded)], message='batch_x_beam, logits, preds, labels, len_decoded: ', summarize=1000)
                     loss, _ = self.ocd_loss(
@@ -116,6 +113,7 @@ class Transformer(Seq2SeqModel):
                         len_logits=len_decoded,
                         labels=labels,
                         preds=preds)
+
                 elif self.args.model.loss_type == 'CE':
                     loss = self.ce_loss(
                         logits=logits,
@@ -126,9 +124,9 @@ class Transformer(Seq2SeqModel):
                     table_targets_distributions = tf.nn.softmax(tf.constant(self.args.table_targets))
                     loss = self.premium_ce_loss(
                         logits=logits,
-                        labels=tensors_input.label_splits[id_gpu],
+                        labels=decoder_input.output_labels,
                         table_targets_distributions=table_targets_distributions,
-                        len_labels=tensors_input.len_label_splits[id_gpu])
+                        len_labels=decoder_input.len_labels)
                 else:
                     raise NotImplementedError('NOT found loss type: {}'.format(self.args.model.loss_type))
 

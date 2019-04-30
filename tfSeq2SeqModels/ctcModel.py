@@ -52,7 +52,6 @@ class CTCModel(Seq2SeqModel):
                 if self.args.model.balance_training:
                     token_loss = loss / tf.to_float(len_logits)
                     musk = tf.to_float(tf.greater(token_loss, self.args.model.balance_training))
-                    # musk = tf.Print(musk, [loss, tf.reduce_sum(musk)], message='musk num: ', summarize=1000)
                     loss *= musk
 
                 if self.args.model.confidence_penalty:
@@ -80,7 +79,7 @@ class CTCModel(Seq2SeqModel):
             self.__class__.__name__, name_gpu, self.__class__.num_Model))
 
         if self.is_train:
-            return loss, gradients, [align, tensors_input.label_splits[id_gpu], tf.reduce_sum(1-musk)]
+            return loss, gradients, [align, tensors_input.label_splits[id_gpu]]
         else:
             return logits, len_logits
 

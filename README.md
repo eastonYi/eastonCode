@@ -1,5 +1,9 @@
 # An efficient end-to-end toolkit for ASR implemented with TensorFlow
 
+
+## Install
+For easy to edit, you donot need to install but add the whole 'eastonCOde' to you PYTHONPATH.
+
 ##  How to use
 Configure your `.yaml` file
 1. congfig your `vocab.txt`
@@ -116,7 +120,7 @@ Configure your `.yaml` file
 ## HKUST
 |Model| Discription | Cost | train_dev | dev |
 |:-----:|-------------|---|:-----:| :-----: |
-| Transformer  |  6 blockes for each side; <br> skip 3 frames | 4 GPU/13h/35k steps| 32.6 | |
+| Transformer  |  6 blockes for each side; <br> skip 3 frames ; <br> num_heads 12; <br> l2-norm 1e-5; <br> attention_dropout: 0.0 ; <br> residual_dropout: 0.3| 4 GPU/20h/35k steps| 28.76 | 30.8 |
 |CTC   | CONV_BLSTM with 1600 hiddens states (800 for each direction); <br> confidence penalty 0.3 | 4 GPU/14.5h/21.5k steps | 26.9  | 27.8 |
 
 ## LibriSpeech
