@@ -2,10 +2,22 @@
 
 
 ## Install
-For easy to edit, you donot need to install but add the whole 'eastonCOde' to you PYTHONPATH.
+For easy to edit, you donot need to install but add the path of 'eastonCode' to you PYTHONPATH.
+```
+PYTHONPATH=/path/to/eastonCode:$PYTHONPATH
+```
 
-##  How to use
-Configure your `.yaml` file
+## create exp dir
+The experiments dir look like this:
+<a href="/README.html" target="_blank">
+  <img class="aligncenter" alt="projects" src="images/2019/05/projects.png" width="492" height="546" />
+</a>
+
+`models` and `data` are empty for initialization, used to preserve saved models and data information, respectively.
+We run the below commands under the specific exp dir(i.e. `aishell2`)
+
+## How to use
+- Configure your `.yaml` file
 1. congfig your `vocab.txt`
     a) if you use attention (e.g. transformer model), you need to add `<sos>` and `<eos>`
     ```
