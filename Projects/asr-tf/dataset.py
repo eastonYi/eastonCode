@@ -53,5 +53,5 @@ if __name__ == '__main__':
     save2tfrecord(args.dataset_dev, args.dirs.dev.tfdata)
     save2tfrecord(args.dataset_train, args.dirs.train.tfdata)
 
-
-    get_tfdata_info(args.dirs.train.tfdata, args.data.train.size_dataset, args, idx_init=290, dir_save_info='data')
+    len_dataset = args.data.train.size_dataset or len(args.dataset_train)
+    get_tfdata_info(args.dirs.train.tfdata, len_dataset, args, idx_init=290, dir_save_info='data', rerun=False)

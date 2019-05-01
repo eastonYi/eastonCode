@@ -133,7 +133,6 @@ try:
     args.model.decoder2.type = decoder
 except:
     print("not using decoder2!")
-    pass
 
 ## model
 if args.model.structure == 'Seq2SeqModel':

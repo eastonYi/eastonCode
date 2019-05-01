@@ -2,32 +2,33 @@
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import os
 import numpy as np
 from tqdm import tqdm
 import sys
 
 
-def get_tfdata_info(dir_tfdata, len_dataset, args, idx_init=150, dir_save_info='data'):
+def get_tfdata_info(dir_tfdata, len_dataset, args, idx_init=150, dir_save_info='data', rerun=False):
     """
     enlarge idx_init can shrink the num of buckets
     """
     print('get the dataset info')
-    import tensorflow as tf
-    from tfTools.tfRecord import readTFRecord
-    feat, label = readTFRecord(dir_tfdata, args, transform=True)
 
-    config = tf.ConfigProto()
-    config.allow_soft_placement = True
-    config.gpu_options.allow_growth = True
-    config.log_device_placement = False
-    with tf.train.MonitoredTrainingSession(config=config) as sess:
-        list_len = []
-        for _ in tqdm(range(len_dataset)):
-            feature = sess.run(feat)
-            list_len.append(len(feature))
+    if not rerun:
+        import tensorflow as tf
+        from tfTools.tfRecord import readTFRecord
+        feat, label = readTFRecord(dir_tfdata, args, transform=True)
 
-    histogram(list_len, dir_save_info)
+        config = tf.ConfigProto()
+        config.allow_soft_placement = True
+        config.gpu_options.allow_growth = True
+        config.log_device_placement = False
+        with tf.train.MonitoredTrainingSession(config=config) as sess:
+            list_len = []
+            for _ in tqdm(range(len_dataset)):
+                feature = sess.run(feat)
+                list_len.append(len(feature))
+
+        histogram(list_len, dir_save_info)
 
     list_num = []
     list_length = []
