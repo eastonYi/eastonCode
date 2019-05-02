@@ -14,13 +14,13 @@ from tfTools.tfTools import get_session
 from tfModels.tools import create_embedding, size_variables
 
 from tfTools.tfRecord import TFReader, readTFRecord
-from datasets import ASRDataLoader
+from dataProcessing.dataHelper import ASRDataLoader
 
 from utils.summaryTools import Summary
 from utils.performanceTools import dev, decode_test
 from utils.textTools import array_idx2char, array2text, batch_cer
 from utils.tools import check_to_stop
-from utils.ctc_decode import rna_reduce_map
+
 
 def train():
     print('reading data form ', args.dirs.train.tfdata)

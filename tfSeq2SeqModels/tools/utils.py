@@ -372,40 +372,6 @@ def embedding(x, vocab_size, dense_size, name=None, reuse=None, kernel=None, mul
         return output
 
 
-# def dense(inputs,
-#           output_size,
-#           activation=tf.identity,
-#           use_bias=True,
-#           kernel=None,
-#           reuse=None,
-#           name=None):
-#     argcount = activation.__code__.co_argcount
-#     if activation.__defaults__:
-#         argcount -= len(activation.__defaults__)
-#     assert argcount in (1, 2)
-#     with tf.variable_scope(name, "dense", reuse=reuse):
-#         if argcount == 1:
-#             input_size = inputs.get_shape().as_list()[-1]
-#             inputs_shape = tf.unstack(tf.shape(inputs))
-#             inputs = tf.reshape(inputs, [-1, input_size])
-#             if kernel is not None:
-#                 assert kernel.get_shape().as_list()[0] == output_size
-#                 w = kernel
-#             else:
-#                 with tf.variable_scope(tf.get_variable_scope()):
-#                     w = tf.get_variable("kernel", [output_size, input_size])
-#             outputs = tf.matmul(inputs, w, transpose_b=True)
-#             if use_bias:
-#                 b = tf.get_variable("bias", [output_size], initializer=tf.zeros_initializer)
-#                 outputs += b
-#             outputs = activation(outputs)
-#             return tf.reshape(outputs, inputs_shape[:-1] + [output_size])
-#         else:
-#             arg1 = dense(inputs, output_size, tf.identity, use_bias, name='arg1')
-#             arg2 = dense(inputs, output_size, tf.identity, use_bias, name='arg2')
-#             return activation(arg1, arg2)
-
-
 def dense(inputs,
           units,
           activation=tf.identity,
@@ -450,72 +416,6 @@ def ff_hidden(inputs, hidden_size, output_size, activation, use_bias=True, reuse
         hidden_outputs = dense(inputs, hidden_size, activation, use_bias)
         outputs = dense(hidden_outputs, output_size, tf.identity, use_bias)
         return outputs
-
-
-def multihead_attention_lh(query_antecedent,
-                            memory_antecedent,
-                            bias,
-                            total_key_depth,
-                            total_value_depth,
-                            output_depth,
-                            num_heads,
-                            dropout_rate,
-                            num_queries=None,
-                            summaries=False,
-                            image_shapes=None,
-                            name=None):
-    with tf.variable_scope(
-        name,
-        default_name="multihead_attention",
-        values=[query_antecedent, memory_antecedent]):
-
-        if memory_antecedent is None:
-            # Q = K = V
-            # self attention
-            q = dense(query_antecedent, total_key_depth, use_bias=False, name="q")
-            k = dense(query_antecedent, total_key_depth, use_bias=False, name="k")
-            v = dense(query_antecedent, total_value_depth, use_bias=False, name="v")
-
-        if num_queries:
-            q = q[:, -num_queries:, :]
-
-        q = common_attention.split_heads(q, num_heads)
-        k = common_attention.split_heads(k, num_heads)
-        v = common_attention.split_heads(v, num_heads)
-        key_depth_per_head = total_key_depth // num_heads
-        q *= key_depth_per_head**-0.5
-        x = common_attention.dot_product_attention(
-            q, k, v, bias, dropout_rate, summaries, image_shapes)
-        x = common_attention.combine_heads(x)
-        x = dense(x, output_depth, use_bias=False, name="output_transform")
-        return x
-
-def ff_hidden_lh(inputs, hidden_size, output_size, activation, use_bias=True, reuse=None, name=None):
-    """
-    eq 2:
-        hidden_outputs = activation(x * W1 + b1)
-        outputs = hidden_outputs * W2 + b2
-    """
-    with tf.variable_scope(name, "ffn", reuse=reuse):
-        hidden_outputs = dense(inputs, hidden_size, activation, use_bias, name='conv1')
-        outputs = dense(hidden_outputs, output_size, tf.identity, use_bias, name='conv2')
-        return outputs
-
-def residual_lh(inputs, outputs, dropout_rate):
-    """Residual connection.
-
-    Args:
-        inputs: A Tensor.
-        outputs: A Tensor.
-        dropout_rate: A float range from [0, 1).
-
-    Returns:
-        A Tensor.
-    """
-    outputs = inputs + tf.nn.dropout(outputs, 1 - dropout_rate)
-    with tf.variable_scope("layer_prepostprocess"):
-        outputs = common_layers.layer_norm(outputs)
-    return outputs
 
 
 def multihead_attention(query_antecedent,

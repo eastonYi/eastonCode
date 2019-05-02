@@ -13,8 +13,8 @@ The experiments dir look like this:
   <img class="aligncenter" alt="projects" src="images/2019/05/projects.png" width="492" height="546" />
 </a>
 
-`models` and `data` are empty for initialization, used to preserve saved models and data information, respectively.
-We run the below commands under the specific exp dir(i.e. `aishell2`)
+`models` and `data` are empty for initialization, used to preserve saved models and data information, respectively. `configs` contains the `.yaml` files which are the configurations of the hyperparameters in your experiments.
+We run the below commands under the specific exp dir (i.e. `aishell2`)
 
 ## How to use
 - Configure your `.yaml` file

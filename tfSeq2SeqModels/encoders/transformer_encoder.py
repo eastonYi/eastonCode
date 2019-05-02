@@ -17,8 +17,8 @@ class Transformer_Encoder(Encoder):
         self.hidden_units = args.model.encoder.num_cell_units
         self.num_heads = args.model.encoder.num_heads
         self.num_blocks = args.model.encoder.num_blocks
-        self._ff_activation = lambda x, y: x * tf.sigmoid(y) \
-                if args.model.decoder.activation == 'glu' else tf.nn.relu # glu
+        self._ff_activation = (lambda x, y: x * tf.sigmoid(y)) \
+                if args.model.encoder.activation == 'glu' else tf.nn.relu # glu
 
     def encode(self, features, len_feas):
 

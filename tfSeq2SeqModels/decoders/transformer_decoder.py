@@ -28,7 +28,7 @@ class Transformer_Decoder(RNADecoder):
         self.residual_dropout_rate = args.model.decoder.residual_dropout_rate if is_train else 0.0
         self.num_heads = args.model.decoder.num_heads
         self.size_embedding = args.model.decoder.size_embedding
-        self._ff_activation = lambda x, y: x * tf.sigmoid(y) \
+        self._ff_activation = (lambda x, y: x * tf.sigmoid(y)) \
                 if args.model.decoder.activation == 'glu' else tf.nn.relu # glu
         self.softmax_temperature = args.model.decoder.softmax_temperature
         self.lambda_lm = self.args.lambda_lm
