@@ -1,14 +1,12 @@
-import scipy.io.wavfile as wav
-import soundfile
-
-
 def load_wavfile(wavfile):
     """
     Read a wav file using scipy.io.wavfile
     """
     if wavfile.endswith('.wav'):
+        import scipy.io.wavfile as wav
         rate, sig = wav.read(wavfile)
     elif wavfile.endswith('.flac'):
+        import soundfile
         sig, rate = soundfile.read(wavfile, dtype='int16')
     else:
         raise IOError('NOT support file type or not a filename: {}'.format(wavfile))

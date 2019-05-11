@@ -189,11 +189,11 @@ def infer():
                     continue
                 dict_feed = {model_infer.list_pl[0]: np.expand_dims(sample['feature'], axis=0),
                              model_infer.list_pl[1]: np.array([len(sample['feature'])])}
-                sample_id, shape_batch, alignment = sess.run(model_infer.list_run, feed_dict=dict_feed)
+                sample_id, shape_batch, _ = sess.run(model_infer.list_run, feed_dict=dict_feed)
                 # decoded, sample_id, decoded_sparse = sess.run(model_infer.list_run, feed_dict=dict_feed)
-                res_txt = array2text(sample_id[0], args.data.unit, args.idx2token, min_idx=0, max_idx=args.dim_output-1)
-                align_txt = array2text(alignment[0], args.data.unit, args.idx2token, min_idx=0, max_idx=args.dim_output-1)
-                ref_txt = array2text(sample['label'], args.data.unit, args.idx2token, min_idx=0, max_idx=args.dim_output-1)
+                res_txt = array2text(sample_id[0], args.data.unit, args.idx2token, eos_idx=args.eos_idx, min_idx=0, max_idx=args.dim_output-1)
+                # align_txt = array2text(alignment[0], args.data.unit, args.idx2token, min_idx=0, max_idx=args.dim_output-1)
+                ref_txt = array2text(sample['label'], args.data.unit, args.idx2token, eos_idx=args.eos_idx, min_idx=0, max_idx=args.dim_output-1)
 
                 list_res_char = list(res_txt)
                 list_ref_char = list(ref_txt)
@@ -211,7 +211,7 @@ def infer():
                     cer_len = 1000
                     wer_len = 1000
                 if wer_dist/wer_len > 0:
-                    fw.write('id:\t{} \nres:\t{}\nalignmnt:\t{}\nref:\t{}\n\n'.format(sample['id'], res_txt, align_txt, ref_txt))
+                    fw.write('id:\t{} \nres:\t{}\nref:\t{}\n\n'.format(sample['id'], res_txt, ref_txt))
                 logging.info('current cer: {:.3f}, wer: {:.3f};\tall cer {:.3f}, wer: {:.3f}'.format(
                     cer_dist/cer_len, wer_dist/wer_len, total_cer_dist/total_cer_len, total_wer_dist/total_wer_len))
         logging.info('dev CER {:.3f}:  WER: {:.3f}'.format(total_cer_dist/total_cer_len, total_wer_dist/total_wer_len))

@@ -35,9 +35,11 @@ class CTCModel(Seq2SeqModel):
                 embed_table=None,
                 global_step=self.global_step,
                 args=self.args)
+
+            features = tensors_input.feature_splits[id_gpu]
             # using encoder to encode the inout sequence
             hidden_output, len_hidden_output = encoder(
-                features=tensors_input.feature_splits[id_gpu],
+                features=features,
                 len_feas=tensors_input.len_fea_splits[id_gpu])
 
             logits, align, len_logits = decoder(hidden_output, len_hidden_output)
