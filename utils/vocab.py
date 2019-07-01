@@ -43,8 +43,8 @@ def make_vocab(fpath, fname):
     word2cnt = Counter()
     with open(fpath, encoding='utf-8') as f:
         for l in f:
-            words = l.strip().split()[1:]
-            # words = l.strip().split(',')[1].split()
+            # words = l.strip().split()[1:]
+            words = l.strip().split(',')[1].split()
             word2cnt.update(Counter(words))
     word2cnt.update({"<pad>": 1000000000,
                      "<unk>": 100000000})
@@ -70,9 +70,9 @@ def pre_processing(fpath, fname):
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--output', type=str, dest='src_vocab')
-#    parser.add_argument('--dst_vocab', type=str, dest='dst_vocab')
+    # parser.add_argument('--dst_vocab', type=str, dest='dst_vocab')
     parser.add_argument('--input', type=str, dest='src_path')
-#    parser.add_argument('--dst_path', type=str, dest='dst_path')
+    # parser.add_argument('--dst_path', type=str, dest='dst_path')
     args = parser.parse_args()
     # Read config
     logging.basicConfig(level=logging.INFO)

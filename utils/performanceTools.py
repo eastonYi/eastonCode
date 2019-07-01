@@ -53,12 +53,12 @@ def dev(step, dataloader, model, sess, unit, idx2token, eos_idx=None, min_idx=0,
         batch_time = time()
         processed += shape_batch[0]
         progress = processed/len(dataloader)
-        logging.info('batch cer: {:.3f}\twer: {:.3f} batch: {}\t time:{:.2f}s {:.3f}%'.format(
+        logging.warning('batch cer: {:.3f}\twer: {:.3f} batch: {}\t time:{:.2f}s {:.3f}%'.format(
                      _cer, _wer, shape_batch, used_time, progress*100.0))
     used_time = time() - start_time
     cer = total_cer_dist/total_cer_len
     wer = total_wer_dist/total_wer_len
-    logging.info('=====dev info, total used time {:.2f}h==== \nWER: {:.4f}\ntotal_wer_len: {}'.format(
+    logging.warning('=====dev info, total used time {:.2f}h==== \nWER: {:.4f}\ntotal_wer_len: {}'.format(
                  used_time/3600, wer, total_wer_len))
 
     return cer, wer
@@ -73,5 +73,5 @@ def decode_test(step, sample, model, sess, unit, idx2token, eos_idx=None, min_id
     res_txt = array2text(sampled_id[0], unit, idx2token, eos_idx, min_idx, max_idx)
     ref_txt = array2text(sample['label'], unit, idx2token, eos_idx, min_idx, max_idx)
 
-    logging.info('length: {}, res: \n{}\nref: \n{}'.format(
+    logging.warning('length: {}, res: \n{}\nref: \n{}'.format(
                  shape_sample[1], res_txt, ref_txt))

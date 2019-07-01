@@ -74,6 +74,7 @@ gpus: '0,1,2,3'
 num_epochs: 100000
 keep_training: True
 num_steps: 500000
+maxlen: 50
 
 bucket_boundaries: 61,69,76,82,89,94,100,105,110,116,121,127,132,138,144,151,158,166,174,183,194,206,222,247,318,643
 num_batch_tokens: 18000

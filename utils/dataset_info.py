@@ -15,7 +15,7 @@ def get_tfdata_info(dir_tfdata, len_dataset, args, idx_init=150, dir_save_info='
 
     if not rerun:
         import tensorflow as tf
-        from tfTools.tfRecord import readTFRecord
+        from tfTools.tfData import readTFRecord
         feat, label = readTFRecord(dir_tfdata, args, transform=True)
 
         config = tf.ConfigProto()

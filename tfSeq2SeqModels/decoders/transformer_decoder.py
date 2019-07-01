@@ -96,7 +96,7 @@ class Transformer_Decoder(RNADecoder):
                 tf.reduce_any(tf.logical_not(finished)),
                 tf.less(
                     i,
-                    tf.reduce_min([tf.shape(encoded)[1], 50]) # maxlen = 25
+                    tf.reduce_min([tf.shape(encoded)[1], self.args.max_len]) # maxlen = 25
                 )
             )
 
@@ -362,7 +362,7 @@ class Transformer_Decoder(RNADecoder):
                 tf.reduce_any(tf.logical_not(finished)),
                 tf.less(
                     i,
-                    tf.reduce_min([tf.shape(encoded)[1], 50]) # maxlen = 100
+                    tf.reduce_min([tf.shape(encoded)[1], self.args.max_len]) # maxlen = 100
                 )
             )
 

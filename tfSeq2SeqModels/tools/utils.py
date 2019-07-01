@@ -382,9 +382,9 @@ def dense(inputs,
     argcount = activation.__code__.co_argcount
     if activation.__defaults__:
         argcount -= len(activation.__defaults__)
-    assert argcount in (1, 2)
+    assert argcount in (0, 1, 2)
     with tf.variable_scope(name, "dense", reuse=reuse):
-        if argcount == 1:
+        if argcount <= 1:
             input_size = inputs.get_shape().as_list()[-1]
             inputs_shape = tf.unstack(tf.shape(inputs))
             inputs = tf.reshape(inputs, [-1, input_size])

@@ -8,9 +8,9 @@ import time
 import collections
 from random import shuffle, random
 from concurrent.futures import ThreadPoolExecutor
-from dataProcessing.audio import audio2vector, process_raw_feature
 from abc import ABCMeta, abstractmethod
 
+from .audio import audio2vector, process_raw_feature
 from utils.tools import size_bucket_to_put
 
 logging.basicConfig(level=logging.DEBUG, format='%(levelname)s(%(filename)s:%(lineno)d): %(message)s')

@@ -61,43 +61,41 @@ class CONV_LSTM(Encoder):
         outputs = x
         output_seq_lengths = len_sequence
 
-        if self.args.model.encoder.num_lstm_layers > 0:
-            outputs = self.blstm(
-                hidden_output=outputs,
-                len_feas=output_seq_lengths,
-                num_cell_units=num_cell_units,
-                use_residual=use_residual,
-                dropout=dropout,
-                name='blstm_1')
-            outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'HALF', 1)
+        outputs = self.blstm(
+            hidden_output=outputs,
+            len_feas=output_seq_lengths,
+            num_cell_units=num_cell_units,
+            use_residual=use_residual,
+            dropout=dropout,
+            name='blstm_1')
+        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'HALF', 1)
 
-            outputs = self.blstm(
-                hidden_output=outputs,
-                len_feas=output_seq_lengths,
-                num_cell_units=num_cell_units,
-                use_residual=use_residual,
-                dropout=dropout,
-                name='blstm_2')
-            outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'SAME', 2)
+        outputs = self.blstm(
+            hidden_output=outputs,
+            len_feas=output_seq_lengths,
+            num_cell_units=num_cell_units,
+            use_residual=use_residual,
+            dropout=dropout,
+            name='blstm_2')
+        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'SAME', 2)
 
-        if self.args.model.encoder.num_lstm_layers > 2:
-            outputs = self.blstm(
-                hidden_output=outputs,
-                len_feas=output_seq_lengths,
-                num_cell_units=num_cell_units,
-                use_residual=use_residual,
-                dropout=dropout,
-                name='blstm_3')
-            outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'HALF', 3)
+        outputs = self.blstm(
+            hidden_output=outputs,
+            len_feas=output_seq_lengths,
+            num_cell_units=num_cell_units,
+            use_residual=use_residual,
+            dropout=dropout,
+            name='blstm_3')
+        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'HALF', 3)
 
-            outputs = self.blstm(
-                hidden_output=outputs,
-                len_feas=output_seq_lengths,
-                num_cell_units=num_cell_units,
-                use_residual=use_residual,
-                dropout=dropout,
-                name='blstm_4')
-            outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'SAME', 4)
+        outputs = self.blstm(
+            hidden_output=outputs,
+            len_feas=output_seq_lengths,
+            num_cell_units=num_cell_units,
+            use_residual=use_residual,
+            dropout=dropout,
+            name='blstm_4')
+        outputs, output_seq_lengths = self.pooling(outputs, output_seq_lengths, 'SAME', 4)
 
         return outputs, output_seq_lengths
 

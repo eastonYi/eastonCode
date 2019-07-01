@@ -189,9 +189,9 @@ def down_sample(features, rate):
 
 def process_raw_feature(seq_raw_features, args):
 
-    if args.data.specAugment:
-        from SpecAugment import spec_augment_tensorflow
-        seq_raw_features = spec_augment_tensorflow.spec_augment(seq_raw_features)
+    # if args.data.specAugment:
+    #     from SpecAugment import spec_augment_tensorflow
+    #     seq_raw_features = spec_augment_tensorflow.spec_augment(seq_raw_features)
 
     # 1-D, 2-D
     if args.data.add_delta:
