@@ -1,0 +1,93 @@
+dirs:
+    train:
+        data: /mnt/lustre/xushuang/easton/data/ptb/ptb.train.txt
+    dev:
+        data: /mnt/lustre/xushuang/easton/data/ptb/ptb.valid.txt
+    test:
+        data: /mnt/lustre/xushuang/easton/data/ptb/ptb.test.txt
+
+    type: scp
+    models: models
+    vocab: /mnt/lustre/xushuang/easton/projects/nmt-tf/exp/ptb/vocab.txt
+    log: log
+    checkpoint: checkpoint
+    # checkpoint_init: /mnt/lustre/xushuang/easton/projects/nmt-tf/exp/lm/models/ptb_large.yaml/checkpoint
+
+
+# There are 3 supported model configurations:
+# ===========================================
+# | config | epochs | train | valid  | test
+# ===========================================
+# | small  | 13     | 37.99 | 121.39 | 115.91
+# | medium | 39     | 48.45 |  86.16 |  82.07
+# | large  | 55     | 37.87 |  82.62 |  78.29
+
+data:
+    num_batch_tokens: 40000
+    num_steps: 35
+    num_loops: 14
+    unit: word
+    train:
+        size_dataset:
+    dev:
+        size_dataset:
+
+model:
+    encoder:
+        type:
+    decoder:
+        type: LSTM
+        rnn_mode: BLOCK
+        num_layers: 1
+        num_cell_units: 1500
+        num_cell_project:
+        init_scale: 0.04
+        start_with_blank: True
+        dropout: 0.65
+        sample_prob: 0.8
+        start_warmup_steps: 0
+        step_increasement: 0.0
+        softmax_temperature: 0.5
+        size_embedding: 800
+    structure: languageModel
+    use_layernorm: True
+    use_residual: True
+    confidence_penalty: 0.2
+
+dev_step: 500
+decode_step: 50
+save_step: 200
+keep_training: True
+
+gpus: '1'
+# gpus: '3'
+
+bucket_boundaries: 122,159,186,208,228,247,264,279,295,310,325,340,354,368,383,399,415,433,450,469,491,514,541,571,609,656,720,822,1010
+num_batch_tokens: 500
+num_epochs: 100000
+num_steps: 30000
+
+opti:
+    beta1: 0.9
+    beta2: 0.999
+    epsilon: 1e-8
+
+default_stddev: 0.046875
+
+# learning rate
+optimizer: adam
+# constant_learning_rate: 0.00003
+warmup_steps: 1000
+peak: 0.002
+decay_steps: 1000
+beam_size: 1
+# beam_size: 10
+num_threads: 8
+
+length_penalty_weight: 0.0
+lamda_l2: 0.0
+
+grad_clip_value: 0.0
+slot_clip_value: 0.0
+grad_clip_norm: 0.0
+grad_clip_global_norm: 10

@@ -1,0 +1,76 @@
+dirs:
+    train:
+        data: /mnt/lustre/xushuang/easton/data/large_speech_chinese_data/char/lm_data/200M/train/text.200M+12kh.uniq.charseg
+    dev:
+        data: /mnt/lustre/xushuang/easton/data/large_speech_chinese_data/char/lm_data/200M/dev/text.charseg
+    test:
+        data: /mnt/lustre/xushuang/easton/data/large_speech_chinese_data/char/lm_data/200M/dev/text.charseg
+
+    type: scp
+    models: models
+    vocab: /mnt/lustre/xushuang/easton/projects/asr-tf/exp/hkust/vocab_3673+1.txt
+    log: log
+    checkpoint: checkpoint
+    checkpoint_init: /mnt/lustre/xushuang/easton/projects/nmt-tf/exp/large_cn/models/large_cn.yaml/checkpoint
+
+data:
+    num_steps: 35
+    num_loops: 25
+    unit: word
+    train:
+        size_dataset:
+    dev:
+        size_dataset:
+
+model:
+    encoder:
+        type:
+    decoder:
+        type: Speller
+        rnn_mode: BLOCK
+        num_layers: 2
+        num_cell_units: 1500
+        num_cell_project:
+        init_scale: 0.04
+        dropout: 0.65
+        schedule: 0.8
+        start_warmup_steps: 0
+        step_increasement: 0.0
+        softmax_temperature: 0.5
+        size_embedding: 1500
+    structure: languageModel
+
+dev_step: 500
+save_step: 500
+keep_training:
+
+# gpus: '2'
+gpus: '0,1,2,3'
+
+bucket_boundaries: 5,8,11,14,17,20,25,36,64,88,120
+
+opti:
+    beta1: 0.9
+    beta2: 0.999
+    epsilon: 1e-8
+
+default_stddev: 0.046875
+
+# learning rate
+optimizer: sgd
+lr_type: warmup_exponential_decay
+warmup_steps: 10000
+peak: 0.3
+decay_steps: 10000
+beam_size: 1
+# beam_size: 10
+num_threads: 8
+num_batch_tokens: 20000
+
+length_penalty_weight: 0.0
+lamda_l2: 0.0
+
+grad_clip_value: 0.0
+slot_clip_value: 0.0
+grad_clip_norm: 0.0
+grad_clip_global_norm: 10.0
