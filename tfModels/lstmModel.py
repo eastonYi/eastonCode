@@ -211,7 +211,7 @@ class LSTM_Model(object):
                     labels=tf.reshape(tensors_input.label_splits[id_gpu], [-1]),
                     logits=logits)
                 cross_entropy = tf.multiply(cross_entropy, tf.reshape(tensors_input.mask_splits[id_gpu], [-1]))
-                cross_entropy_loss = tf.reduce_sum(cross_entropy)
+                cross_entropy_loss = tf.reduce_sum(cross_entropy) / tf.reduce_sum(tensors_input.mask_splits[id_gpu])
                 loss = cross_entropy_loss
 
             if self.is_train:
